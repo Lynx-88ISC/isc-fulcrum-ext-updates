@@ -158,6 +158,9 @@
         }
       }
       for (const [fid, a] of have) {
+        // Operation images are job-level and production owns them - never remove one,
+        // even if its file is gone from the item.
+        if ((a.metadata && a.metadata.AttachmentLevel) === "JobTracking_Operation") continue;
         if (fid && !onItem.has(fid)) {
           removes.push({ itemId: id, item: labels.get(id) || id, file: a.name, rec: a,
                          started, statuses, url: trackUrl(id, a.metadata && a.metadata.OperationId) });
@@ -169,12 +172,20 @@
 
   /* ---------- writes ---------- */
 
-  // Mirrors the item's own metadata so an operation-level drawing lands on its operation,
-  // and copies the real file-type flags. Reuses the existing file id - no re-upload.
+  // Always writes at Item level. The star (operation image) is a JOB-level decision that
+  // production owns, so this never creates one - even when the source attachment is the
+  // item's own operation image. Mirroring the metadata verbatim would set operation images
+  // on the job, silently overriding what the shop set up.
+  //
+  // Item level is king for the Subassembly section; job level is king for the star.
+  //
+  // AutodeskForgeUrn is kept - it only drives the CAD preview for that file.
   function addBody(jobId, entry) {
     const s = entry.src;
-    const md = Object.assign({}, s.metadata, { ItemId: entry.itemId });
-    if (!md.AttachmentLevel) md.AttachmentLevel = "Item";
+    const md = Object.assign({}, s.metadata, { ItemId: entry.itemId, AttachmentLevel: "Item" });
+    delete md.OperationId;
+    delete md.OperationOrder;
+    delete md.StepId;
     return [{
       metadata: md,
       ownerType: "Job", ownerId: jobId, ownerPath: "", ownerName: "",
