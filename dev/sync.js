@@ -68,6 +68,10 @@
     return null;
   }
 
+  // Pending and Ready both mean nobody has touched it yet - Ready only means queued and
+  // available. Treating "not Pending" as started flagged untouched work as in progress.
+  const NOT_STARTED = { Pending: 1, Ready: 1, Cancelled: 1 };
+
   /* ---------- scan ---------- */
 
   async function scan(jobId) {
@@ -141,8 +145,10 @@
       }
       const have = jobByItem.get(id) || new Map();
       const onItem = new Set(list.map((a) => a.file && a.file.id).filter(Boolean));
+      // Pending and Ready both mean nobody has touched it - Ready only means queued and
+      // available. Treating "not Pending" as started flagged untouched work.
       const statuses = [...new Set((opsByItem.get(id) || []).map((o) => o.status))];
-      const started = statuses.some((s) => s && s !== "Pending");
+      const started = statuses.some((s) => s && !NOT_STARTED[s]);
 
       for (const a of list) {
         const fid = a.file && a.file.id;
@@ -223,7 +229,7 @@
       '<td style="padding:5px 8px;border-bottom:1px solid #2c3037;color:#9aa1ab">' + esc(o.item) + '</td>' +
       '<td style="padding:5px 8px;border-bottom:1px solid #2c3037">' + esc(o.file) + '</td>' +
       '<td style="padding:5px 8px;border-bottom:1px solid #2c3037;font-size:11px;color:' + (o.started ? ISC_ORANGE : "#6f757e") + '">' +
-        (o.started ? "work started (" + esc(o.statuses.join("/")) + ")" : "not started") + '</td>' +
+        (o.statuses.length ? esc(o.statuses.join(", ")) : "no operations") + '</td>' +
       '<td style="padding:5px 8px;border-bottom:1px solid #2c3037;text-align:right">' +
         (o.url ? '<a href="' + esc(o.url) + '" target="_blank" rel="noopener" style="color:' + ISC_ORANGE + ';text-decoration:none;font-size:11px">Job Tracking</a>' : "") +
       '</td></tr>';
