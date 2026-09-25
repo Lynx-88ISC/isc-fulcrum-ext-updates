@@ -671,23 +671,28 @@
      (48px tall, 0 20px padding, 8px radius, 14.4px Inter). ISC Orange, filled solid, so it
      reads as ours rather than as something Fulcrum shipped. */
   let pillTimer = null;
+  const PILL = 'isc-embed-btn';   // NOT #iscapp-pill - that id carries the old position:fixed rule
   function pillBack() {
-    const p = document.getElementById('iscapp-pill'); if (p) p.remove();
+    const p = document.getElementById(PILL); if (p) p.remove();
     if (pillTimer) { clearInterval(pillTimer); pillTimer = null; }
     A.openApp();   // loads the schedule on first open, instant on every open after
   }
   function mountPill() {
-    if (document.getElementById('iscapp-pill')) return true;
+    if (document.getElementById(PILL)) return true;
     const jb = [...document.querySelectorAll('j-button')].find(b => (b.innerText || '').trim().indexOf('Reschedule') === 0);
     const row = jb && jb.parentElement;
     if (!row) return false;
     const b = document.createElement('button');
-    b.id = 'iscapp-pill';
+    b.id = PILL;
     b.textContent = 'ISC views';
-    b.style.cssText = 'height:48px;padding:0 20px;border:0;border-radius:8px;cursor:pointer;flex:0 0 auto;' +
-      'font:600 14.4px/20px Inter,sans-serif;background:#F58220;color:#1a1206;';
+    // position:static is explicit - the app stylesheet pins #iscapp-pill to the corner, and
+    // anything inheriting that rule ends up floating over the page instead of sitting in the row
+    b.style.cssText = 'position:static;height:48px;padding:0 20px;border:0;border-radius:8px;cursor:pointer;' +
+      'flex:0 0 auto;font:600 14.4px/20px Inter,sans-serif;background:#F58220;color:#1a1206;';
     b.onclick = pillBack;
-    row.insertBefore(b, row.children[0]);
+    // left of the warning icon, which is the only j-button in the row with no label
+    const warn = [...row.children].find(c => c.tagName === 'J-BUTTON' && !(c.innerText || '').trim());
+    row.insertBefore(b, warn || row.children[0]);
     return true;
   }
   function showFulcrum() {
