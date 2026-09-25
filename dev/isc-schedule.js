@@ -673,7 +673,7 @@
      (48px tall, 0 20px padding, 8px radius, 14.4px Inter). ISC Orange, filled solid, so it
      reads as ours rather than as something Fulcrum shipped. */
   let pillTimer = null;
-  const PILL = 'isc-embed-btn';   // NOT #iscapp-pill - that id carries the old position:fixed rule
+  const PILL = 'isc-embed-btn';   // deliberately not 'iscapp-pill' - see the note in the stylesheet
   function pillBack() {
     const p = document.getElementById(PILL); if (p) p.remove();
     if (pillTimer) { clearInterval(pillTimer); pillTimer = null; }
@@ -687,8 +687,8 @@
     const b = document.createElement('button');
     b.id = PILL;
     b.textContent = 'ISC views';
-    // position:static is explicit - the app stylesheet pins #iscapp-pill to the corner, and
-    // anything inheriting that rule ends up floating over the page instead of sitting in the row
+    // position:static is explicit: a stray position:fixed here puts the button in the page
+    // corner no matter where it sits in the DOM, which is exactly how this went wrong once
     b.style.cssText = 'position:static;height:48px;padding:0 20px;border:0;border-radius:8px;cursor:pointer;' +
       'flex:0 0 auto;font:600 14.4px/20px Inter,sans-serif;background:#F58220;color:#1a1206;';
     b.onclick = pillBack;
