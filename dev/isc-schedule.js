@@ -44,7 +44,8 @@
 
 /* ---------------------------------------------------------------- part 1: tokens, css, state */
 (function () {
-  ['iscapp', 'iscapp-css', 'iscapp-pill', 'iscapp-pop'].forEach(id => { const e = document.getElementById(id); if (e) e.remove(); });
+  // isc-embed-btn must be in this list or re-running the script leaves a second button behind
+  ['iscapp', 'iscapp-css', 'iscapp-pill', 'iscapp-pop', 'isc-embed-btn'].forEach(id => { const e = document.getElementById(id); if (e) e.remove(); });
   const NL = String.fromCharCode(10);
   const TZ = 'America/Chicago';
   const F = o => new Intl.DateTimeFormat('en-US', Object.assign({ timeZone: TZ }, o));
@@ -141,7 +142,8 @@
   #iscapp .row .now span,#iscapp .row .due span,#iscapp .jobhd .now span,#iscapp .jobhd .due span{display:none}
   #iscapp ::-webkit-scrollbar{height:10px;width:10px}
   #iscapp ::-webkit-scrollbar-thumb{background:#40434d;border-radius:5px}
-  #iscapp-pill{position:fixed;top:12px;right:16px;z-index:2147483250;background:#F58220;color:#fff;border:0;border-radius:8px;padding:8px 13px;font:600 13px Inter,sans-serif;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.4)}
+  /* the old floating pill rule is gone on purpose - the way back in is now embedded in
+     Fulcrum's own toolbar (see mountPill), and this position:fixed pinned it to the corner */
   #iscapp-pop{position:fixed;z-index:2147483300;background:#27292e;border:1px solid rgba(255,255,255,.14);border-radius:10px;box-shadow:0 14px 36px rgba(0,0,0,.6);min-width:300px;max-width:440px;max-height:60vh;overflow:auto;padding:10px;font:14.4px/1.4 Inter,sans-serif;color:#e6e6f0}
   #iscapp-pop h4{margin:0 0 5px;font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:#F58220}
   #iscapp-pop .ps{font-size:11.5px;color:rgba(230,230,240,.55);margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,.1)}
@@ -786,10 +788,9 @@
     document.body.appendChild(r);
     r.querySelectorAll('.seg button').forEach(b => b.onclick = () => { S.view = b.dataset.v; paint(); });
     r.querySelector('.note .x').onclick = () => { r.querySelector('.note').style.display = 'none'; };
-    r.querySelector('.c-close').onclick = () => {
-      closePop(); r.remove();
-      const p = document.getElementById('iscapp-pill'); if (p) p.remove();
-    };
+    // Close hides the overlay and hands the toolbar button back - it does not tear the app
+    // down, so reopening is instant instead of reloading 2,000 operations.
+    r.querySelector('.c-close').onclick = () => { closePop(); A.showFulcrum(); };
     return r;
   }
   async function load(r) {
