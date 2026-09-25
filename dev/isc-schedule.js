@@ -674,8 +674,7 @@
   function pillBack() {
     const p = document.getElementById('iscapp-pill'); if (p) p.remove();
     if (pillTimer) { clearInterval(pillTimer); pillTimer = null; }
-    const rr = document.getElementById('iscapp'); if (rr) rr.style.display = 'flex';
-    S.view = 'board'; paint();
+    A.openApp();   // loads the schedule on first open, instant on every open after
   }
   function mountPill() {
     if (document.getElementById('iscapp-pill')) return true;
@@ -813,17 +812,32 @@
     S.items = all; window.__all = all;
     r.querySelector('.cnt').textContent = all.length + ' operations / ' + eq.length + ' machines';
   }
+  /* Start DORMANT: mount the button in Fulcrum's toolbar and do nothing else. Loading the
+     schedule is ~2,000 operations over 35 machines and takes the better part of a minute, so
+     it must not happen just because somebody opened /ui/schedule - it runs when they ask for
+     it. The shell is built hidden so the button has something to reveal. */
   const r = shell();
-  (async () => {
-    try {
-      if (window.__all && window.__all.length) {
-        S.items = window.__all;
-        r.querySelector('.cnt').textContent = window.__all.length + ' operations';
-      } else await load(r);
-      S.view = 'board'; paint();
-    } catch (e) {
-      r.querySelector('.body').innerHTML = '<div class="empty" style="padding:40px">failed to load: ' + e + '</div>';
+  r.style.display = 'none';
+  let loaded = false;
+  async function openApp() {
+    const rr = document.getElementById('iscapp'); if (!rr) return;
+    rr.style.display = 'flex';
+    if (!loaded) {
+      loaded = true;
+      try {
+        if (window.__all && window.__all.length) {
+          S.items = window.__all;
+          rr.querySelector('.cnt').textContent = window.__all.length + ' operations';
+        } else await load(rr);
+      } catch (e) {
+        loaded = false;
+        rr.querySelector('.body').innerHTML = '<div class="empty" style="padding:40px">failed to load: ' + e + '</div>';
+        return;
+      }
     }
-  })();
+    S.view = 'board'; paint();
+  }
+  A.openApp = openApp;
+  showFulcrum();   // mounts the embedded button, keeps the overlay out of the way
   A.paint = paint; A.showFulcrum = showFulcrum;
 })();
