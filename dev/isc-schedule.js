@@ -227,6 +227,9 @@
      parts therefore UNDER-states a nest badly, and counting each part as its own run over-states
      the machine - Twister read 71.9h of work in an 11.1h day, against 2.1h once collapsed. */
   let PACK = null;
+  // Both caches are derived from S.items, so anything that replaces the schedule must clear them
+  // or the next render silently reuses windows and runs built from the previous load.
+  function resetDerived() { WIN = null; PACK = null; }
   function pack() {
     if (PACK) return PACK;
     const byEq = {};
@@ -335,7 +338,7 @@
   }
   window.ISCApp = {
     S, items, soList, trackUrl, jobUrl, openPop, closePop, lanes, mins, kls, woOf, partOf, soOf,
-    windows, workSpan, wcOf, pack,
+    windows, workSpan, wcOf, pack, resetDerived,
     esc, F, dk, md, wd, tm, H, DAY, kd, LABW, NL, CTX: () => CTX, setCTX: v => { CTX = v; }, BARS: () => BARS, setBARS: v => { BARS = v; }
   };
 })();
@@ -774,7 +777,7 @@
     r.innerHTML = '<div class="bar"><span class="mark"><b>ISC</b></span>' +
       '<span class="seg">' + VIEWS.map(v => '<button data-v="' + v[0] + '">' + v[1] + '</button>').join('') + '</span>' +
       '<span class="ctl"></span><span class="sp"></span>' +
-      '<span class="lab cnt"></span><button class="btn c-close">Close</button></div>' +
+      '<span class="lab cnt"></span><button class="btn c-close" title="Close and discard the loaded schedule - the next open pulls fresh data. Use the Fulcrum tab instead to peek at the real board and come straight back.">Close</button></div>' +
       '<div class="note"><span>Planned dates come from Fulcrum&rsquo;s auto-scheduler &mdash; greedy, no frozen window. ' +
       'The median operation has moved <b>14 days</b> from where it was first planned. Read this for <b>sequence and load</b>, not deadlines.</span>' +
       '<button class="x" title="hide">&times;</button></div>' +
@@ -788,9 +791,11 @@
     document.body.appendChild(r);
     r.querySelectorAll('.seg button').forEach(b => b.onclick = () => { S.view = b.dataset.v; paint(); });
     r.querySelector('.note .x').onclick = () => { r.querySelector('.note').style.display = 'none'; };
-    // Close hides the overlay and hands the toolbar button back - it does not tear the app
-    // down, so reopening is instant instead of reloading 2,000 operations.
-    r.querySelector('.c-close').onclick = () => { closePop(); A.showFulcrum(); };
+    /* Close DISCARDS the loaded schedule, so the next open pulls fresh data. That matters
+       because the scheduler gets re-run during the day and anything held in memory goes stale
+       - without this there is no way to refresh short of reloading the page. The Fulcrum tab
+       is the cheap alternative: it hides the overlay and keeps the data for an instant reopen. */
+    r.querySelector('.c-close').onclick = () => { closePop(); A.discard(); };
     return r;
   }
   async function load(r) {
@@ -844,6 +849,19 @@
     S.view = 'board'; paint();
   }
   A.openApp = openApp;
+  // Close: throw the schedule away and go back to Fulcrum. Next open re-fetches.
+  A.discard = function () {
+    loaded = false;
+    S.items = [];
+    window.__all = null;
+    A.resetDerived();
+    const rr = document.getElementById('iscapp');
+    if (rr) {
+      rr.querySelector('.cnt').textContent = '';
+      rr.querySelector('.body').innerHTML = '';
+    }
+    showFulcrum();
+  };
   showFulcrum();   // mounts the embedded button, keeps the overlay out of the way
   A.paint = paint; A.showFulcrum = showFulcrum;
 })();
