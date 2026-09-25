@@ -209,6 +209,69 @@
     }
     return WIN;
   }
+  /* MACHINE QUEUE PACKING ---------------------------------------------------------------
+     Laying every operation in independently from its own start lets several of them claim the
+     same morning hours; lanes() then stacks them and the row quietly asserts more work than
+     the machine can do. Measured on 2026-09-28, Weld Bay 1 claimed 20h of work in a 10.8h day.
+
+     So pack each machine as a queue: runs in scheduled-start order, laid end to end inside the
+     working window, overflow spilling to the next working day. A run never starts before its own
+     scheduled start, so the scheduler's sequencing is preserved - we only remove the overlap.
+
+     A WORK ORDER IS ONE RUN, and its time is workOrderOperationSummary.totalEstimatedTimeInSeconds,
+     NOT the sum of its parts. Work orders combine many parts across several jobs (14 of 20 groups
+     here span multiple jobs) and the per-part estimates are near zero: WO 1280 carries 27 parts
+     across 3 jobs whose estimates sum to 0.1h, while the run itself is 21780s = 6.05h. Summing
+     parts therefore UNDER-states a nest badly, and counting each part as its own run over-states
+     the machine - Twister read 71.9h of work in an 11.1h day, against 2.1h once collapsed. */
+  let PACK = null;
+  function pack() {
+    if (PACK) return PACK;
+    const byEq = {};
+    items().forEach(i => { const k = i._eq || '(unassigned)'; (byEq[k] = byEq[k] || []).push(i); });
+    const out = { byDay: {}, byRun: [] };
+    for (const eq in byEq) {
+      const wo = {}, runs = [];
+      byEq[eq].forEach(i => {
+        const w = woOf(i);
+        if (w) (wo[w] = wo[w] || []).push(i);
+        else runs.push({ list: [i], mins: Math.round((i.estimatedTotalTimeInSeconds || 0) / 60), start: i.scheduledStartTimeUtc, wo: null });
+      });
+      for (const w in wo) {
+        const arr = wo[w];
+        const s = arr.map(i => i.scheduledStartTimeUtc).sort()[0];
+        const sum = arr[0].workOrderOperationSummary.totalEstimatedTimeInSeconds || 0;
+        runs.push({ list: arr, mins: Math.round(sum / 60), start: s, wo: arr[0].workOrderOperationSummary });
+      }
+      if (!runs.length) continue;
+      runs.sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
+      const w0 = windows()[wcOf(byEq[eq][0])] || { from: 330, to: 930, days: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 } };
+      let k = dk(new Date(runs[0].start));
+      let cur = Math.max(w0.from, mins(new Date(runs[0].start), k));
+      for (const r of runs) {
+        const rk = dk(new Date(r.start));
+        // the queue may not run ahead of the scheduler's own placement
+        if (rk > k) { k = rk; cur = Math.max(w0.from, mins(new Date(r.start), rk)); }
+        else if (rk === k) cur = Math.max(cur, mins(new Date(r.start), k));
+        let left = Math.max(r.mins, 5);          // zero-time runs still deserve a visible tick
+        r.eq = eq; r.segs = [];
+        for (let g = 0; g < 600 && left > 0; g++) {
+          if (!w0.days[wdOf(k)]) { k = dk(new Date(kd(k).getTime() + DAY)); cur = w0.from; continue; }
+          const avail = w0.to - cur;
+          if (avail <= 0) { k = dk(new Date(kd(k).getTime() + DAY)); cur = w0.from; continue; }
+          const take = Math.min(avail, left);
+          r.segs.push({ key: k, s: cur, e: cur + take });
+          left -= take; cur += take;
+          if (left > 0) { k = dk(new Date(kd(k).getTime() + DAY)); cur = w0.from; }
+        }
+        out.byRun.push(r);
+        r.segs.forEach(sg => { (out.byDay[sg.key] = out.byDay[sg.key] || []).push({ run: r, seg: sg }); });
+      }
+    }
+    PACK = out;
+    return PACK;
+  }
+
   // The block of real work this operation puts on `key`, in minutes past midnight, or null.
   function workSpan(i, key) {
     const w = windows()[wcOf(i)] || { from: 330, to: 930, days: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 } };
@@ -266,7 +329,7 @@
   }
   window.ISCApp = {
     S, items, soList, trackUrl, jobUrl, openPop, closePop, lanes, mins, kls, woOf, partOf, soOf,
-    windows, workSpan, wcOf,
+    windows, workSpan, wcOf, pack,
     esc, F, dk, md, wd, tm, H, DAY, kd, LABW, NL, CTX: () => CTX, setCTX: v => { CTX = v; }, BARS: () => BARS, setBARS: v => { BARS = v; }
   };
 })();
@@ -274,7 +337,7 @@
 /* ------------------------------------------------------------------------- part 2: the views */
 (function () {
   const A = window.ISCApp, S = A.S;
-  const { esc, F, dk, md, wd, tm, H, DAY, kd, LABW, NL, items, soList, soOf, woOf, partOf, trackUrl, jobUrl, kls, mins, lanes, openPop, windows, workSpan, wcOf } = A;
+  const { esc, F, dk, md, wd, tm, H, DAY, kd, LABW, NL, items, soList, soOf, woOf, partOf, trackUrl, jobUrl, kls, mins, lanes, openPop, windows, workSpan, wcOf, pack } = A;
   const q = s => document.querySelector('#iscapp ' + s);
   const body = () => q('.body');
 
@@ -313,20 +376,23 @@
 
   function day() {
     const b = body(); b.innerHTML = '';
-    // work mode: rows carry operations whose WORK lands on this day, not whose envelope covers it
-    const all = items().filter(i => S.work ? !!workSpan(i, S.day)
-      : (dk(new Date(i.scheduledStartTimeUtc)) === S.day ||
-        (dk(new Date(i.scheduledStartTimeUtc)) < S.day && dk(new Date(i.scheduledEndTimeUtc)) >= S.day)));
+    // work mode: rows carry the packed RUNS whose work lands on this day, not envelopes
+    const today = S.work ? (pack().byDay[S.day] || []) : null;
+    const all = S.work ? today.reduce((a, x) => a.concat(x.run.list), [])
+      : items().filter(i => dk(new Date(i.scheduledStartTimeUtc)) === S.day ||
+        (dk(new Date(i.scheduledStartTimeUtc)) < S.day && dk(new Date(i.scheduledEndTimeUtc)) >= S.day));
     if (!all.length) { b.innerHTML = '<div class="empty" style="padding:40px">nothing planned on this day</div>'; return; }
     // Axis spans the work actually on this day, so the dead stretch before the first job
     // collapses as the day clears instead of padding the chart out to the whole window.
     let lo = 1e9, hi = -1e9;
-    all.forEach(i => {
-      const w = S.work ? workSpan(i, S.day) : null;
-      const a = w ? w.s : Math.max(0, mins(new Date(i.scheduledStartTimeUtc), S.day));
-      const b = w ? w.e : Math.min(1440, mins(new Date(i.scheduledEndTimeUtc), S.day));
-      lo = Math.min(lo, a); hi = Math.max(hi, b);
-    });
+    if (S.work) {
+      today.forEach(x => { lo = Math.min(lo, x.seg.s); hi = Math.max(hi, x.seg.e); });
+    } else {
+      all.forEach(i => {
+        lo = Math.min(lo, Math.max(0, mins(new Date(i.scheduledStartTimeUtc), S.day)));
+        hi = Math.max(hi, Math.min(1440, mins(new Date(i.scheduledEndTimeUtc), S.day)));
+      });
+    }
     lo = Math.max(0, Math.floor(lo / 60) * 60); hi = Math.min(1440, Math.ceil(hi / 60) * 60);
     if (hi - lo < 360) hi = Math.min(1440, lo + 360);
     const span = hi - lo, pct = m => ((m - lo) / span * 100);
@@ -361,11 +427,22 @@
         return { a: Math.max(lo, Math.min(hi, s0)), b: Math.max(lo, Math.min(hi, e0)), s0, e0, list: arr };
       };
       const segs = [];
-      Object.values(wo).forEach(v => segs.push(Object.assign(mk(v), { wo: v[0].workOrderOperationSummary })));
-      loose.forEach(i => segs.push(mk([i])));
+      if (S.work) {
+        // one bar per packed run - the queue has already removed the overlap
+        today.filter(x => x.run.eq === k).forEach(x => segs.push({
+          a: Math.max(lo, Math.min(hi, x.seg.s)), b: Math.max(lo, Math.min(hi, x.seg.e)),
+          s0: x.seg.s, e0: x.seg.e, list: x.run.list, wo: x.run.wo, run: x.run
+        }));
+      } else {
+        Object.values(wo).forEach(v => segs.push(Object.assign(mk(v), { wo: v[0].workOrderOperationSummary })));
+        loose.forEach(i => segs.push(mk([i])));
+      }
       const L = lanes(segs, 'a', 'b'), rowH = Math.max(42, L.count * 27 + 12);
-      const hrs = list.reduce((s, i) => s + H(i.estimatedTotalTimeInSeconds || 0), 0);
-      const nWo = Object.keys(wo).length;
+      // in work mode the row total is the hours the machine actually spends today,
+      // so it can never exceed the working window
+      const hrs = S.work ? segs.reduce((s, x) => s + (x.e0 - x.s0) / 60, 0)
+        : list.reduce((s, i) => s + H(i.estimatedTotalTimeInSeconds || 0), 0);
+      const nWo = S.work ? segs.filter(x => x.wo).length : Object.keys(wo).length;
       const row = document.createElement('div'); row.className = 'row';
       const tr = document.createElement('div'); tr.className = 'track'; tr.style.cssText = 'flex:1;height:' + rowH + 'px';
       tr.innerHTML = grid + nowEl;
@@ -383,7 +460,10 @@
         el.className = 'seg2' + (anyRun ? ' run' : (allW ? ' wait' : '')) + (x.wo ? ' wo' : '');
         el.style.left = pct(x.a) + '%'; el.style.width = Math.max(1.2, pct(x.b) - pct(x.a)) + '%'; el.style.top = (6 + x.lane * 27) + 'px';
         el.dataset.bar = BARS.push(x) - 1;
-        const chrs = x.list.reduce((s, i) => s + H(i.estimatedTotalTimeInSeconds || 0), 0);
+        // a work-order run's time is the run's own total, never the sum of its parts
+        const chrs = x.run ? x.run.mins / 60
+          : (x.wo ? H(x.wo.totalEstimatedTimeInSeconds || 0)
+            : x.list.reduce((s, i) => s + H(i.estimatedTotalTimeInSeconds || 0), 0));
         if (x.wo) {
           const jobs = [...new Set(x.list.map(i => i.job.name))];
           el.title = 'WORK ORDER ' + x.wo.name + ' - ' + i0.name + NL + k + NL + x.list.length + ' parts' + NL +
