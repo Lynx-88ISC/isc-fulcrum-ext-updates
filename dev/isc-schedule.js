@@ -668,6 +668,210 @@
 (function () {
   const A = window.ISCApp, S = A.S;
   const { esc, dk, DAY, kd, soList, closePop } = A;
+  const { items, pack, windows, wcOf, soOf, NL } = A;
+
+  /* COPY FOR CLAUDE ---------------------------------------------------------------------
+     Claude Desktop cannot be pushed to - it only receives data through a connection someone
+     installs. Rather than make every machine carry a bridge, the view puts a compact,
+     self-describing block on the clipboard and the person pastes it into Claude. One click
+     and a paste, nothing installed, works on any machine or browser.
+
+     The block carries its own caveats on purpose: these numbers are easy to over-read, and a
+     future reader has no other way to know that the dates are a greedy scheduler's output or
+     that capacity was inferred rather than configured. */
+  function fmtH(n) { return (Math.round(n * 10) / 10) + 'h'; }
+
+  function machineLines(machineNames) {
+    const W = windows(), P = pack(), out = [];
+    for (const eq of machineNames) {
+      const any = P.byRun.find(r => r.eq === eq);
+      if (!any) continue;
+      const w = W[wcOf(any.list[0])];
+      const cap = w ? (w.to - w.from) / 60 : 10;
+      const days = {};
+      for (const r of P.byRun.filter(x => x.eq === eq))
+        for (const s of r.segs) days[s.key] = (days[s.key] || 0) + (s.e - s.s) / 60;
+      const over = Object.entries(days).filter(([, h]) => h > cap).sort((a, b) => b[1] - a[1]);
+      out.push({
+        eq, cap, overDays: over.length,
+        worst: over[0] ? { day: over[0][0], pct: Math.round(over[0][1] / cap * 100) } : null
+      });
+    }
+    return out.sort((a, b) => b.overDays - a.overDays);
+  }
+
+  // Every machine-day the run queue touches, so Claude can find contention we did not anticipate
+  function dailyLoad(eq) {
+    const W = windows(), P = pack();
+    const any = P.byRun.find(r => r.eq === eq);
+    if (!any) return null;
+    const w = W[wcOf(any.list[0])];
+    const cap = w ? (w.to - w.from) / 60 : 10;
+    const days = {};
+    for (const r of P.byRun.filter(x => x.eq === eq))
+      for (const s of r.segs) days[s.key] = (days[s.key] || 0) + (s.e - s.s) / 60;
+    return {
+      machine: eq,
+      workCenter: wcOf(any.list[0]),
+      capacityHoursPerDay: +cap.toFixed(1),
+      daysOverCapacity: Object.values(days).filter(h => h > cap).length,
+      load: Object.entries(days).sort().map(([d, h]) => ({ day: d, hours: +h.toFixed(1), pct: Math.round(h / cap * 100) }))
+    };
+  }
+
+  function opRow(o) {
+    const wo = o.workOrderOperationSummary;
+    return {
+      job: o.job && o.job.name,
+      operation: o.name,
+      machine: o._eq || null,
+      workCenter: o._wc || null,
+      start: o.scheduledStartTimeUtc,
+      end: o.scheduledEndTimeUtc,
+      estHours: +(((o.estimatedTotalTimeInSeconds || 0) / 3600).toFixed(2)),
+      status: o.status,
+      late: !!o.isLate,
+      missingMaterial: !!o.isMissingMaterial,
+      workOrder: wo ? wo.name : null,
+      workOrderRunHours: wo ? +(((wo.totalEstimatedTimeInSeconds || 0) / 3600).toFixed(2)) : null
+    };
+  }
+
+  function claudeText() {
+    const P = pack();
+    const out = {
+      source: 'Fulcrum ' + location.host + ' schedule, via the ISC schedule views',
+      captured: new Date().toISOString(),
+      timezone: 'America/Chicago',
+      view: S.view,
+      readThisFirst: [
+        'Dates are Fulcrum auto-scheduler output (greedy algorithm, freezeDays=0). Read them as sequence and load, not promises - the median operation has moved 14 days from where it was first planned.',
+        'estHours is an estimate. For an operation on a work order, the machine time is workOrderRunHours for the WHOLE run, counted ONCE - do not sum estHours across the parts of a work order, they are near zero.',
+        'capacityHoursPerDay is DERIVED from observed scheduled start times (2nd-98th percentile), not read from Fulcrum Shift Setup. Treat it as approximate.',
+        'pct over 100 means the scheduler booked more work into a day than the window holds. That is real contention to investigate, not a data error.',
+        'Only INCOMPLETE operations are in this feed. Completed history is not here, so routes read as "remaining work".'
+      ]
+    };
+
+    if (S.view === 'order' && S.so) {
+      const ops = items().filter(o => soOf(o) === String(S.so));
+      const j0 = ops[0] && ops[0].job;
+      const jobs = {};
+      for (const o of ops) {
+        const j = o.job && o.job.name; if (!j) continue;
+        (jobs[j] = jobs[j] || { job: j, productionDue: o.job.productionDueDate, flaggedLate: !!o.job.isLate, priority: o.job.priority, status: o.job.status, operations: 0, missingMaterial: 0, ends: [] });
+        jobs[j].operations++;
+        jobs[j].ends.push(o.scheduledEndTimeUtc);
+        if (o.isMissingMaterial) jobs[j].missingMaterial++;
+      }
+      out.salesOrder = {
+        so: String(S.so),
+        customer: (j0 && j0.customerReference && j0.customerReference.name) || null,
+        remainingOperations: ops.length
+      };
+      out.jobs = Object.values(jobs).map(v => {
+        const end = v.ends.sort()[v.ends.length - 1];
+        delete v.ends;
+        v.finishes = dk(new Date(end));
+        v.daysPastDue = Math.round((new Date(end) - new Date(v.productionDue)) / DAY);
+        return v;
+      }).sort((a, b) => (a.job < b.job ? -1 : 1));
+      out.operations = ops.map(opRow).sort((a, b) => (a.start < b.start ? -1 : 1));
+      out.machines = [...new Set(ops.map(o => o._eq).filter(Boolean))].map(dailyLoad).filter(Boolean)
+        .sort((a, b) => b.daysOverCapacity - a.daysOverCapacity);
+    } else if (S.view === 'day' || S.view === 'board') {
+      const today = P.byDay[S.day] || [];
+      out.day = S.day;
+      out.operations = today.reduce((a, x) => a.concat(x.run.list), []).map(opRow);
+      out.machines = [...new Set(today.map(x => x.run.eq))].map(dailyLoad).filter(Boolean)
+        .sort((a, b) => b.daysOverCapacity - a.daysOverCapacity);
+    }
+
+    return toMarkdown(out);
+  }
+
+  /* Markdown rather than JSON: it reads the same to Claude, stays readable if it ends up pasted
+     into Teams or an email, and keeps every row rather than a summary - the point is that the
+     reader can reach their own conclusion instead of trusting ours. */
+  function md(rows, cols) {
+    if (!rows.length) return '_none_' + NL;
+    const head = '| ' + cols.map(c => c[0]).join(' | ') + ' |';
+    const rule = '|' + cols.map(() => '---').join('|') + '|';
+    const body = rows.map(r => '| ' + cols.map(c => {
+      const v = c[1](r);
+      return (v === null || v === undefined || v === '') ? '' : String(v);
+    }).join(' | ') + ' |');
+    return [head, rule].concat(body).join(NL) + NL;
+  }
+
+  function toMarkdown(o) {
+    const L = [];
+    L.push('# ISC schedule context');
+    L.push('');
+    L.push('Paste-ready. Ask your question after this block.');
+    L.push('');
+    L.push('- **Source:** ' + o.source);
+    L.push('- **Captured:** ' + o.captured + ' (' + o.timezone + ')');
+    L.push('- **View:** ' + o.view + (o.day ? ' - ' + o.day : ''));
+    if (o.salesOrder) {
+      L.push('- **Sales order:** SO' + o.salesOrder.so + ' - ' + (o.salesOrder.customer || '') +
+        ' - ' + o.salesOrder.remainingOperations + ' remaining operations');
+    }
+    L.push('');
+
+    if (o.jobs && o.jobs.length) {
+      L.push('## Jobs');
+      L.push('');
+      L.push(md(o.jobs, [
+        ['Job', r => r.job], ['Due', r => String(r.productionDue).slice(0, 10)],
+        ['Finishes', r => r.finishes], ['Days past due', r => r.daysPastDue],
+        ['Ops', r => r.operations], ['Missing material', r => r.missingMaterial || ''],
+        ['Priority', r => r.priority], ['Status', r => r.status]
+      ]));
+      L.push('');
+    }
+
+    if (o.machines && o.machines.length) {
+      L.push('## Machine load');
+      L.push('');
+      L.push('Capacity is derived, not configured - see the notes below.');
+      L.push('');
+      L.push(md(o.machines, [
+        ['Machine', r => r.machine], ['Work centre', r => r.workCenter],
+        ['Capacity h/day', r => r.capacityHoursPerDay], ['Days over capacity', r => r.daysOverCapacity]
+      ]));
+      L.push('');
+      for (const m of o.machines) {
+        const over = m.load.filter(d => d.pct > 100).slice(0, 15);
+        if (!over.length) continue;
+        L.push('**' + m.machine + '** - days over capacity' +
+          (m.daysOverCapacity > over.length ? ' (first ' + over.length + ' of ' + m.daysOverCapacity + ')' : '') + ':');
+        L.push('');
+        L.push(md(over, [['Day', r => r.day], ['Hours', r => r.hours], ['% of capacity', r => r.pct]]));
+        L.push('');
+      }
+    }
+
+    if (o.operations && o.operations.length) {
+      L.push('## Operations (' + o.operations.length + ')');
+      L.push('');
+      L.push(md(o.operations, [
+        ['Job', r => r.job], ['Operation', r => r.operation], ['Machine', r => r.machine],
+        ['Start', r => String(r.start).slice(0, 16).replace('T', ' ')],
+        ['End', r => String(r.end).slice(0, 16).replace('T', ' ')],
+        ['Est h', r => r.estHours], ['Status', r => r.status],
+        ['Late', r => r.late ? 'yes' : ''], ['No material', r => r.missingMaterial ? 'yes' : ''],
+        ['Work order', r => r.workOrder], ['WO run h', r => r.workOrderRunHours]
+      ]));
+      L.push('');
+    }
+
+    L.push('## Read this first');
+    L.push('');
+    o.readThisFirst.forEach(n => L.push('- ' + n));
+    return L.join(NL);
+  }
+  A.claudeText = claudeText;
   const VIEWS = [['fulcrum', 'Fulcrum'], ['board', 'Day board'], ['day', 'Day flow'], ['order', 'Order gantt']];
 
   // "Fulcrum" is not a copy of their board - it hides ours so the real one shows through
@@ -777,7 +981,9 @@
     r.innerHTML = '<div class="bar"><span class="mark"><b>ISC</b></span>' +
       '<span class="seg">' + VIEWS.map(v => '<button data-v="' + v[0] + '">' + v[1] + '</button>').join('') + '</span>' +
       '<span class="ctl"></span><span class="sp"></span>' +
-      '<span class="lab cnt"></span><button class="btn c-close" title="Close and discard the loaded schedule - the next open pulls fresh data. Use the Fulcrum tab instead to peek at the real board and come straight back.">Close</button></div>' +
+      '<span class="lab cnt"></span>' +
+      '<button class="btn c-copy" title="Copy this view as text for Claude - paste it into Claude Desktop and ask your question">Copy for Claude</button>' +
+      '<button class="btn c-close" title="Close and discard the loaded schedule - the next open pulls fresh data. Use the Fulcrum tab instead to peek at the real board and come straight back.">Close</button></div>' +
       '<div class="note"><span>Planned dates come from Fulcrum&rsquo;s auto-scheduler &mdash; greedy, no frozen window. ' +
       'The median operation has moved <b>14 days</b> from where it was first planned. Read this for <b>sequence and load</b>, not deadlines.</span>' +
       '<button class="x" title="hide">&times;</button></div>' +
@@ -795,6 +1001,26 @@
        because the scheduler gets re-run during the day and anything held in memory goes stale
        - without this there is no way to refresh short of reloading the page. The Fulcrum tab
        is the cheap alternative: it hides the overlay and keeps the data for an instant reopen. */
+    r.querySelector('.c-copy').onclick = async (ev) => {
+      const b = ev.target;
+      let text;
+      try { text = A.claudeText(); }
+      catch (e) { b.textContent = 'Failed'; setTimeout(() => { b.textContent = 'Copy for Claude'; }, 2000); return; }
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch (e) {
+        // clipboard can be refused (permissions, focus); fall back to a selectable textarea
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;opacity:0';
+        document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); } catch (e2) { /* nothing left to try */ }
+        ta.remove();
+      }
+      const kb = Math.round(text.length / 102.4) / 10;
+      b.textContent = 'Copied ' + kb + ' KB';
+      setTimeout(() => { b.textContent = 'Copy for Claude'; }, 2500);
+    };
     r.querySelector('.c-close').onclick = () => { closePop(); A.discard(); };
     return r;
   }
