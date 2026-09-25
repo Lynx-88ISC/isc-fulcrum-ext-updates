@@ -266,6 +266,7 @@
   }
   window.ISCApp = {
     S, items, soList, trackUrl, jobUrl, openPop, closePop, lanes, mins, kls, woOf, partOf, soOf,
+    windows, workSpan, wcOf,
     esc, F, dk, md, wd, tm, H, DAY, kd, LABW, NL, CTX: () => CTX, setCTX: v => { CTX = v; }, BARS: () => BARS, setBARS: v => { BARS = v; }
   };
 })();
@@ -273,7 +274,7 @@
 /* ------------------------------------------------------------------------- part 2: the views */
 (function () {
   const A = window.ISCApp, S = A.S;
-  const { esc, F, dk, md, wd, tm, H, DAY, kd, LABW, NL, items, soList, soOf, woOf, partOf, trackUrl, jobUrl, kls, mins, lanes, openPop } = A;
+  const { esc, F, dk, md, wd, tm, H, DAY, kd, LABW, NL, items, soList, soOf, woOf, partOf, trackUrl, jobUrl, kls, mins, lanes, openPop, windows, workSpan, wcOf } = A;
   const q = s => document.querySelector('#iscapp ' + s);
   const body = () => q('.body');
 
