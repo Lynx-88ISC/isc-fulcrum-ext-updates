@@ -246,13 +246,17 @@
       if (!runs.length) continue;
       runs.sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
       const w0 = windows()[wcOf(byEq[eq][0])] || { from: 330, to: 930, days: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 } };
-      let k = dk(new Date(runs[0].start));
-      let cur = Math.max(w0.from, mins(new Date(runs[0].start), k));
       for (const r of runs) {
-        const rk = dk(new Date(r.start));
-        // the queue may not run ahead of the scheduler's own placement
-        if (rk > k) { k = rk; cur = Math.max(w0.from, mins(new Date(r.start), rk)); }
-        else if (rk === k) cur = Math.max(cur, mins(new Date(r.start), k));
+        /* Each run is placed at ITS OWN scheduled start - we do NOT carry a cursor from the
+           previous run. An earlier version queued them end to end, which removed the visual
+           overlap but re-planned the shop: compared against Fulcrum's own end dates across 50
+           jobs it ran a median of 83 days late, p90 202, max 216, with only 14 matching within
+           two days. Fulcrum evidently runs operations in parallel on a machine (simultaneous
+           assignment / extra operators), so serialising them invents a schedule into 2027.
+           Fulcrum owns WHEN. We only correct HOW MUCH, and report overload rather than hiding
+           it by moving work. */
+        let k = dk(new Date(r.start));
+        let cur = Math.max(w0.from, mins(new Date(r.start), k));
         let left = Math.max(r.mins, 5);          // zero-time runs still deserve a visible tick
         r.eq = eq; r.segs = [];
         for (let g = 0; g < 600 && left > 0; g++) {
@@ -478,7 +482,19 @@
         }
         tr.appendChild(el);
       });
-      row.innerHTML = '<div class="rn" style="height:' + rowH + 'px">' + esc(k) + '<small>' + list.length + ' ops &middot; ' + hrs.toFixed(1) + 'h' + (nWo ? ' &middot; ' + nWo + ' WO' : '') + '</small></div>';
+      /* Load against the working window. Overload is REPORTED, never smoothed away by moving
+         work: a machine booked past 100% is the answer to "why is this job late", and the
+         earlier attempt to queue it flat invented dates months out. */
+      let load = '';
+      if (S.work) {
+        const w = windows()[wcOf(list[0])];
+        const cap = w ? (w.to - w.from) / 60 : 10;
+        const p = Math.round(hrs / cap * 100);
+        const col = p > 100 ? '#e66767' : (p > 85 ? '#F58220' : '#8a8f9c');
+        load = ' &middot; <span style="color:' + col + (p > 100 ? ';font-weight:600' : '') + '">' +
+          p + '% of ' + cap.toFixed(1) + 'h</span>';
+      }
+      row.innerHTML = '<div class="rn" style="height:' + rowH + 'px">' + esc(k) + '<small>' + list.length + ' ops &middot; ' + hrs.toFixed(1) + 'h' + (nWo ? ' &middot; ' + nWo + ' WO' : '') + load + '</small></div>';
       row.appendChild(tr); root.appendChild(row);
     });
     b.appendChild(root);
