@@ -153,7 +153,7 @@
   #iscboot2 .pb i{display:block;height:100%;width:0;background:#F58220;transition:width .3s}`;
   const st = document.createElement('style'); st.id = 'iscapp-css'; st.textContent = css; document.head.appendChild(st);
 
-  const S = { view: 'board', items: [], day: dk(new Date()), days: 14, so: null, px: null, by: 'op', detail: false };
+  const S = { view: 'board', items: [], day: dk(new Date()), days: 14, so: null, px: null, by: 'op', detail: false, work: true };
   let CTX = {}, BARS = [];
   const items = () => S.items.filter(i => i.scheduledStartTimeUtc);
   const soOf = i => { const r = i.job && i.job.salesOrderLineItemReference; return r && r.soNumber != null ? String(r.soNumber) : null; };
@@ -167,6 +167,67 @@
     const h = +p.find(x => x.type === 'hour').value, m = +p.find(x => x.type === 'minute').value;
     return k === key ? h * 60 + m : (k < key ? -1e6 : 1e6);
   };
+  /* WORK vs ENVELOPE ------------------------------------------------------------------
+     scheduledStartTimeUtc -> scheduledEndTimeUtc is an ENVELOPE: it spans nights, weekends
+     and queue time, so drawing it solid makes a 6-minute job paint a week of colour through
+     every closing time. Measured on 2026-09-25: of 147 operations starting that day, 85 had
+     a clock span longer than their estimate and 90 ended after 15:30 or on a later day; the
+     worst was 164.3h of span for 0.1h of work.
+
+     So in work mode we draw estimatedTotalTimeInSeconds laid into working hours instead.
+
+     Working hours are DERIVED FROM THE SCHEDULE, never from Shift Setup: every scheduled
+     start is a real placement the scheduler made inside an open window, so the distribution
+     of start times per work centre recovers it. Ends are useless (they are envelope ends).
+     Percentiles, not min/max - one stray midnight placement would otherwise stretch Plasma
+     Cutting's window to 00:00. Checked against Welding: derived 05:30-15:29, actual 05:30-15:30. */
+  let WIN = null;
+  const wcOf = i => (i._wc && (i._wc.name || i._wc)) || '(none)';
+  const wdOf = key => new Date(key + 'T12:00:00Z').getUTCDay();
+  function windows() {
+    if (WIN) return WIN;
+    const acc = {};
+    items().forEach(i => {
+      const k = wcOf(i), d = new Date(i.scheduledStartTimeUtc), dkey = dk(d);
+      (acc[k] = acc[k] || { s: [], d: {} });
+      acc[k].s.push(mins(d, dkey));
+      acc[k].d[wdOf(dkey)] = (acc[k].d[wdOf(dkey)] || 0) + 1;
+    });
+    WIN = {};
+    for (const k in acc) {
+      const s = acc[k].s.sort((a, b) => a - b), n = s.length;
+      const p = q => s[Math.min(n - 1, Math.max(0, Math.floor(n * q)))];
+      const from = p(0.02);
+      // work continues past the last START, so give the tail an hour of headroom
+      let to = Math.min(1440, p(0.98) + 60);
+      if (to - from < 240) to = Math.min(1440, from + 480);
+      const days = {};
+      // a weekday counts as worked only if it carries >=5% of the centre's operations,
+      // otherwise a single Saturday call-in would read as a standing shift
+      for (const wd in acc[k].d) if (acc[k].d[wd] / n >= 0.05) days[wd] = 1;
+      WIN[k] = { from, to, days };
+    }
+    return WIN;
+  }
+  // The block of real work this operation puts on `key`, in minutes past midnight, or null.
+  function workSpan(i, key) {
+    const w = windows()[wcOf(i)] || { from: 330, to: 930, days: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 } };
+    let left = Math.round((i.estimatedTotalTimeInSeconds || 0) / 60);
+    let k = dk(new Date(i.scheduledStartTimeUtc));
+    let cur = Math.max(w.from, mins(new Date(i.scheduledStartTimeUtc), k));
+    if (left <= 0) return k === key ? { s: cur, e: cur + 5 } : null;   // zero-time ops still get a tick
+    for (let g = 0; g < 400 && left > 0; g++) {
+      if (!w.days[wdOf(k)]) { k = dk(new Date(kd(k).getTime() + DAY)); cur = w.from; continue; }
+      const avail = w.to - cur;
+      if (avail <= 0) { k = dk(new Date(kd(k).getTime() + DAY)); cur = w.from; continue; }
+      const take = Math.min(avail, left);
+      if (k === key) return { s: cur, e: cur + take };
+      left -= take; cur += take;
+      if (left > 0) { k = dk(new Date(kd(k).getTime() + DAY)); cur = w.from; }
+    }
+    return null;
+  }
+
   function lanes(list, ka, kb) {
     const ends = [], out = [];
     list.slice().sort((a, b) => a[ka] - b[ka]).forEach(it => {
@@ -251,13 +312,19 @@
 
   function day() {
     const b = body(); b.innerHTML = '';
-    const all = items().filter(i => dk(new Date(i.scheduledStartTimeUtc)) === S.day ||
-      (dk(new Date(i.scheduledStartTimeUtc)) < S.day && dk(new Date(i.scheduledEndTimeUtc)) >= S.day));
+    // work mode: rows carry operations whose WORK lands on this day, not whose envelope covers it
+    const all = items().filter(i => S.work ? !!workSpan(i, S.day)
+      : (dk(new Date(i.scheduledStartTimeUtc)) === S.day ||
+        (dk(new Date(i.scheduledStartTimeUtc)) < S.day && dk(new Date(i.scheduledEndTimeUtc)) >= S.day)));
     if (!all.length) { b.innerHTML = '<div class="empty" style="padding:40px">nothing planned on this day</div>'; return; }
+    // Axis spans the work actually on this day, so the dead stretch before the first job
+    // collapses as the day clears instead of padding the chart out to the whole window.
     let lo = 1e9, hi = -1e9;
     all.forEach(i => {
-      lo = Math.min(lo, Math.max(0, mins(new Date(i.scheduledStartTimeUtc), S.day)));
-      hi = Math.max(hi, Math.min(1440, mins(new Date(i.scheduledEndTimeUtc), S.day)));
+      const w = S.work ? workSpan(i, S.day) : null;
+      const a = w ? w.s : Math.max(0, mins(new Date(i.scheduledStartTimeUtc), S.day));
+      const b = w ? w.e : Math.min(1440, mins(new Date(i.scheduledEndTimeUtc), S.day));
+      lo = Math.min(lo, a); hi = Math.max(hi, b);
     });
     lo = Math.max(0, Math.floor(lo / 60) * 60); hi = Math.min(1440, Math.ceil(hi / 60) * 60);
     if (hi - lo < 360) hi = Math.min(1440, lo + 360);
@@ -282,8 +349,14 @@
       const wo = {}, loose = [];
       list.forEach(i => { const w = woOf(i); if (w) { (wo[w] = wo[w] || []).push(i); } else loose.push(i); });
       const mk = arr => {
-        const s0 = Math.min(...arr.map(i => mins(new Date(i.scheduledStartTimeUtc), S.day)));
-        const e0 = Math.max(...arr.map(i => mins(new Date(i.scheduledEndTimeUtc), S.day)));
+        let s0, e0;
+        if (S.work) {
+          const ws = arr.map(i => workSpan(i, S.day)).filter(Boolean);
+          s0 = Math.min(...ws.map(w => w.s)); e0 = Math.max(...ws.map(w => w.e));
+        } else {
+          s0 = Math.min(...arr.map(i => mins(new Date(i.scheduledStartTimeUtc), S.day)));
+          e0 = Math.max(...arr.map(i => mins(new Date(i.scheduledEndTimeUtc), S.day)));
+        }
         return { a: Math.max(lo, Math.min(hi, s0)), b: Math.max(lo, Math.min(hi, e0)), s0, e0, list: arr };
       };
       const segs = [];
@@ -295,6 +368,13 @@
       const row = document.createElement('div'); row.className = 'row';
       const tr = document.createElement('div'); tr.className = 'track'; tr.style.cssText = 'flex:1;height:' + rowH + 'px';
       tr.innerHTML = grid + nowEl;
+      // shade this row's closed hours, so a bar near the edge reads as "end of shift"
+      if (S.work) {
+        const w = windows()[wcOf(list[0])];
+        const shade = 'position:absolute;top:0;bottom:0;background:rgba(0,0,0,.34);pointer-events:none';
+        if (w && w.from > lo) tr.innerHTML += '<div style="' + shade + ';left:0;width:' + pct(w.from) + '%"></div>';
+        if (w && w.to < hi) tr.innerHTML += '<div style="' + shade + ';left:' + pct(w.to) + '%;right:0"></div>';
+      }
       L.items.forEach(x => {
         const i0 = x.list[0];
         const anyRun = x.list.some(i => i.status === 'Running'), allW = x.list.every(i => i.status === 'Pending');
@@ -507,11 +587,13 @@
       c.querySelector('.c-start').onchange = e => { S.day = e.target.value; A.board(); };
       c.querySelector('.c-days').onchange = e => { S.days = +e.target.value; A.board(); };
     } else if (S.view === 'day') {
-      c.innerHTML = '<button class="btn c-prev">&lsaquo;</button><input type="date" class="c-day" value="' + S.day + '"><button class="btn c-next">&rsaquo;</button>';
+      c.innerHTML = '<button class="btn c-prev">&lsaquo;</button><input type="date" class="c-day" value="' + S.day + '"><button class="btn c-next">&rsaquo;</button>' +
+        '<button class="btn c-work' + (S.work ? ' on' : '') + '" title="Draw estimated work laid into working hours, instead of the raw start-to-end envelope">Work hours</button>';
       const shift = n => { S.day = dk(new Date(kd(S.day).getTime() + n * DAY)); controls(); A.day(); };
       c.querySelector('.c-day').onchange = e => { S.day = e.target.value; A.day(); };
       c.querySelector('.c-prev').onclick = () => shift(-1);
       c.querySelector('.c-next').onclick = () => shift(1);
+      c.querySelector('.c-work').onclick = e => { S.work = !S.work; e.target.classList.toggle('on', S.work); A.day(); };
     } else if (S.view === 'order') {
       const sos = soList();
       if (!S.so && sos.length) S.so = sos[0].so;
