@@ -666,14 +666,38 @@
   const VIEWS = [['fulcrum', 'Fulcrum'], ['board', 'Day board'], ['day', 'Day flow'], ['order', 'Order gantt']];
 
   // "Fulcrum" is not a copy of their board - it hides ours so the real one shows through
+  /* The way back in is EMBEDDED in Fulcrum's own schedule toolbar, not floated over the page:
+     it sits first in the row, left of the warning icon, and matches their button metrics
+     (48px tall, 0 20px padding, 8px radius, 14.4px Inter). ISC Orange, filled solid, so it
+     reads as ours rather than as something Fulcrum shipped. */
+  let pillTimer = null;
+  function pillBack() {
+    const p = document.getElementById('iscapp-pill'); if (p) p.remove();
+    if (pillTimer) { clearInterval(pillTimer); pillTimer = null; }
+    const rr = document.getElementById('iscapp'); if (rr) rr.style.display = 'flex';
+    S.view = 'board'; paint();
+  }
+  function mountPill() {
+    if (document.getElementById('iscapp-pill')) return true;
+    const jb = [...document.querySelectorAll('j-button')].find(b => (b.innerText || '').trim().indexOf('Reschedule') === 0);
+    const row = jb && jb.parentElement;
+    if (!row) return false;
+    const b = document.createElement('button');
+    b.id = 'iscapp-pill';
+    b.textContent = 'ISC views';
+    b.style.cssText = 'height:48px;padding:0 20px;border:0;border-radius:8px;cursor:pointer;flex:0 0 auto;' +
+      'font:600 14.4px/20px Inter,sans-serif;background:#F58220;color:#1a1206;';
+    b.onclick = pillBack;
+    row.insertBefore(b, row.children[0]);
+    return true;
+  }
   function showFulcrum() {
     const r = document.getElementById('iscapp'); if (r) r.style.display = 'none';
     closePop();
-    if (!document.getElementById('iscapp-pill')) {
-      const p = document.createElement('button'); p.id = 'iscapp-pill'; p.textContent = 'ISC views';
-      p.onclick = () => { p.remove(); const rr = document.getElementById('iscapp'); if (rr) rr.style.display = 'flex'; S.view = 'board'; paint(); };
-      document.body.appendChild(p);
-    }
+    // Angular re-renders this toolbar, so re-mount if it gets wiped. Poll, never a subtree
+    // MutationObserver - one that also writes DOM feeds itself and locks the tab up.
+    mountPill();
+    if (!pillTimer) pillTimer = setInterval(mountPill, 700);
   }
   function controls() {
     const c = document.querySelector('#iscapp .ctl'); if (!c) return;
