@@ -496,6 +496,13 @@ const ISCOpenFlow = () => {
    watches a subtree it edits feeds itself and locks the tab. */
 (() => {
   const ID='isc-opchart-btn';
+  /* Re-running this script must fully replace the previous instance, not stack on it. The button
+     calls through a global rather than closing over ISCOpenFlow, so an existing button starts
+     using the new code immediately; the old poll timer is cleared for the same reason. Without
+     this a reload leaves the on-screen button wired to the OLD closure and the new build silently
+     never runs. */
+  if(window.__iscFlowMount) clearInterval(window.__iscFlowMount);
+  window.__iscOpenFlow=ISCOpenFlow;
   const title=()=>{
     const h=document.querySelector('.juicy-job-operations-header h3');
     if(h&&h.children.length===0&&h.textContent.trim()==='Operations') return h;
@@ -510,10 +517,10 @@ const ISCOpenFlow = () => {
       'font:700 12px Inter,system-ui,sans-serif';
     b.onmouseenter=()=>{ b.style.filter='brightness(1.08)'; };
     b.onmouseleave=()=>{ b.style.filter=''; };
-    b.onclick=ev=>{ ev.preventDefault(); ev.stopPropagation(); ISCOpenFlow(); };
+    b.onclick=ev=>{ ev.preventDefault(); ev.stopPropagation(); window.__iscOpenFlow(); };
     return b;
   };
-  setInterval(()=>{
+  window.__iscFlowMount=setInterval(()=>{
     if(!/\/ui\/jobs\/[0-9a-f]{24}/.test(location.pathname)){
       const old=document.getElementById(ID); if(old) old.remove();
       return;
