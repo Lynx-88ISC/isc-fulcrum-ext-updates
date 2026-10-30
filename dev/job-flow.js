@@ -15,9 +15,14 @@
  *   2. Flat force-directed on 205 operations -> spread, but a part number was not a visible thing.
  *   3. Force-directed on part-number boxes -> right structure, but the sim settled into a narrow
  *      band: the depth anchor and springs beat the repulsion.
- *   4. THIS: columns by BOM LEVEL (deepest parts left, top assembly right), ordered within a
- *      column by barycentre. Deterministic, no physics to tune, and crossings fall out of the
- *      ordering rather than being fought.
+ *   4. Columns by BOM LEVEL (deepest parts left, top assembly right), ordered by barycentre.
+ *      Right structure, wrong proportions: level 3 is 83 parts, so that one column was a 6,000px
+ *      wall against columns of 16, 4 and 1, and the whole graph read as a thin ribbon.
+ *   5. THIS: same columns, but (a) an over-tall level WRAPS into sub-columns and stays one band,
+ *      (b) vertical position is the MEDIAN y of what a box connects to, packed and swept both
+ *      directions, which is what actually shortens the routes, and (c) hover/click highlighting,
+ *      because 257 links through one gutter are unreadable at any spacing.
+ *      2608-1028-42: 6,000px tall ribbon -> 2,220 x 2,047, median link travel 296px.
  *
  * Only CROSS-PART links are drawn - sequence inside a part is implied by the stack in its box.
  *
