@@ -69,7 +69,10 @@ const ISCOpenFlow = () => {
     '<button class="tidy" style="'+btn+'">Re-order</button><button class="fit" style="'+btn+'">Fit</button>'+
     '<button class="x" style="'+btn+'">Close</button>';
   root.appendChild(bar);
-  bar.querySelector('.x').onclick=()=>root.remove();
+  bar.querySelector('.x').onclick=()=>{
+    try { sessionStorage.removeItem('iscflow:open'); } catch(e){}
+    root.remove();
+  };
 
   const body=document.createElement('div');
   body.style.cssText='flex:1;overflow:hidden;position:relative;cursor:grab';
@@ -120,15 +123,26 @@ const ISCOpenFlow = () => {
   root.insertBefore(leg, body);
 
   (async () => {
+    /* The 11 MB job fetch is the whole cost of this view, so clicking through to Job Tracking
+       must not mean paying it again. Cache the DERIVED model - a couple of hundred KB, not 11 MB,
+       which is what lets it fit in sessionStorage - and mark the overlay as open so returning to
+       the job page restores the chart, pan and zoom automatically. */
+    const CK='iscflow:'+jobId, VK='iscflow:view:'+jobId, TTL=30*60*1000;
+    let cached=null;
+    try { const raw=sessionStorage.getItem(CK);
+      if(raw){ const c=JSON.parse(raw); if(Date.now()-c.t<TTL) cached=c; } } catch(e){}
+
     let j;
-    try { j=await (await fetch('/api/Jobs/'+jobId,{credentials:'same-origin'})).json(); }
-    catch(e){ body.innerHTML='<div style="padding:60px;text-align:center;color:'+C.dim+'">Failed to load: '+esc(e.message)+'</div>'; return; }
+    if(!cached){
+      try { j=await (await fetch('/api/Jobs/'+jobId,{credentials:'same-origin'})).json(); }
+      catch(e){ body.innerHTML='<div style="padding:60px;text-align:center;color:'+C.dim+'">Failed to load: '+esc(e.message)+'</div>'; return; }
+    }
 
     const ops=[], byId=new Map(), itemDepth=new Map();
     /* inputItemIds are CATALOG item ids, not itemToMake ids - resolving them against the wrong
        key makes every assembly look like it consumes nothing. Map by itemReference.id. */
     const refToItem=new Map(), itemInputs=new Map();
-    for(const it of (j.itemsToMake||[])){
+    for(const it of ((cached? [] : (j.itemsToMake||[])))){
       const item=(it.itemReference&&(it.itemReference.number||it.itemReference.name))||'?';
       const rid=it.itemReference&&it.itemReference.id;
       if(rid&&!refToItem.has(rid)) refToItem.set(rid,item);
@@ -142,6 +156,16 @@ const ISCOpenFlow = () => {
           wo:(o.workOrderOperationReference||{}).workOrderNumber||null });
       }
     }
+    if(cached){
+      cached.ops.forEach(o=>ops.push(Object.assign({},o)));
+      cached.depth.forEach(([k,v])=>itemDepth.set(k,v));
+      cached.inputs.forEach(([k,v])=>itemInputs.set(k,v));
+      cached.refs.forEach(([k,v])=>refToItem.set(k,v));
+    } else {
+      try { sessionStorage.setItem(CK, JSON.stringify({ t:Date.now(), ops,
+        depth:[...itemDepth], inputs:[...itemInputs], refs:[...refToItem] })); } catch(e){}
+    }
+
     ops.forEach(n=>byId.set(n.id,n));
     ops.forEach(n=>{ n.prev=n.prev.filter(p=>byId.has(p)); });
 
@@ -505,7 +529,12 @@ const ISCOpenFlow = () => {
     bar.querySelector('.tidy').onclick=()=>{ tidy(); draw(); };
     bar.querySelector('.fit').onclick=fit;
 
-    build(); fit();
+    try { const v=JSON.parse(sessionStorage.getItem(VK)||'null');
+      if(v){ build(); view.x=v.x; view.y=v.y; view.k=v.k; draw(); } else { build(); fit(); } }
+    catch(e){ build(); fit(); }
+    try { sessionStorage.setItem('iscflow:open', jobId); } catch(e){}
+    setInterval(()=>{ if(!document.getElementById('iscflow')) return;
+      try { sessionStorage.setItem(VK, JSON.stringify(view)); } catch(e){} }, 1500);
     window.__flow={ops,groups:()=>groups,cols:()=>cols,links:()=>links,fit,tidy};
   })();
 };
@@ -547,7 +576,11 @@ const ISCOpenFlow = () => {
       const old=document.getElementById(ID); if(old) old.remove();
       return;
     }
-    if(document.getElementById(ID)) return;
-    const h=title(); if(h) h.appendChild(make());
+    const h=title(); if(h&&!document.getElementById(ID)) h.appendChild(make());
+    if(!document.getElementById('iscflow')){
+      let want=null; try { want=sessionStorage.getItem('iscflow:open'); } catch(e){}
+      const here=(location.pathname.match(/\/ui\/jobs\/([0-9a-f]{24})/)||[])[1];
+      if(want&&here&&want===here) window.__iscOpenFlow();
+    }
   },700);
 })();
