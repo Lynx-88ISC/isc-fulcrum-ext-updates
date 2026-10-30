@@ -382,7 +382,7 @@ const ISCOpenFlow = () => {
               (o.wo?'\nwork order '+o.wo:'\nnot in a work order')+
               (o.eq?'\n'+esc(o.eq):'')+(o.hrs?'\n'+o.hrs+' h':'')+
               (o.oop?'\n\nOUT OF ORDER - started before:\n  '+o.why.map(esc).join('\n  '):'')+
-              '\nclick to open in Job Tracking</title></g>';
+              '\nclick to open in Job Tracking (new tab)</title></g>';
         });
         b+='</g>';
       }
@@ -463,8 +463,14 @@ const ISCOpenFlow = () => {
         if(drag){
           if(!drag.moved){
             if(drag.node){
-              window.open('/jobtracking/#/operation?type=Job&jobId='+jobId+'&selectedOperationId='+
-                drag.node.id+'&selectedItemToMakeId='+drag.node.itemToMakeId,'_blank');
+              /* A real anchor with target=_blank, not window.open: a programmatic window.open can
+                 be swallowed by the popup blocker, and losing this overlay to a same-tab
+                 navigation means paying the 11 MB load again to get back. */
+              const a=document.createElement('a');
+              a.href='/jobtracking/#/operation?type=Job&jobId='+jobId+'&selectedOperationId='+
+                drag.node.id+'&selectedItemToMakeId='+drag.node.itemToMakeId;
+              a.target='_blank'; a.rel='noopener noreferrer';
+              document.body.appendChild(a); a.click(); a.remove();
             } else setFocus(drag.g);   // part header click isolates its chain
           }
           drag=null;
