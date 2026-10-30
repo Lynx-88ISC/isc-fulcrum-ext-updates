@@ -53,7 +53,8 @@
     '<span class="sub" style="color:'+C.dim+'"></span>'+
     '<span class="focus" style="color:'+C.orange+';font-weight:600"></span>'+
     '<span style="flex:1"></span>'+
-    '<label style="color:'+C.dim+'"><input type="checkbox" class="hideDone"> hide complete/cancelled</label>'+
+    '<label style="color:'+C.dim+'"><input type="checkbox" class="hideC"> hide complete <b class="nC"></b></label>'+
+    '<label style="color:'+C.dim+'"><input type="checkbox" class="hideX"> hide cancelled <b class="nX"></b></label>'+
     '<label style="color:'+C.dim+'">gap <input type="range" class="gap" min="4" max="90" value="22" style="vertical-align:middle;width:110px"></label>'+
     '<button class="all" style="'+btn+'">Show all</button>'+
     '<button class="tidy" style="'+btn+'">Re-order</button><button class="fit" style="'+btn+'">Fit</button>'+
@@ -118,8 +119,9 @@
     const GAP=()=>+bar.querySelector('.gap').value;
 
     function build(){
-      const hide=bar.querySelector('.hideDone').checked;
-      const live=ops.filter(n=>!hide||!/Complete|Cancelled/.test(n.status));
+      // exact status match, not a regex - 'Complete' and 'Cancelled' are the only two meant here
+      const hC=bar.querySelector('.hideC').checked, hX=bar.querySelector('.hideX').checked;
+      const live=ops.filter(n=>!(hC&&n.status==='Complete')&&!(hX&&n.status==='Cancelled'));
       const ok=new Set(live.map(n=>n.id));
 
       focus=null; if(bar.querySelector('.focus')) bar.querySelector('.focus').textContent='';
@@ -341,7 +343,10 @@
       },{passive:false});
     }
 
-    bar.querySelector('.hideDone').onchange=()=>{ build(); fit(); };
+    bar.querySelector('.hideC').onchange=()=>{ build(); fit(); };
+    bar.querySelector('.hideX').onchange=()=>{ build(); fit(); };
+    bar.querySelector('.nC').textContent='('+ops.filter(n=>n.status==='Complete').length+')';
+    bar.querySelector('.nX').textContent='('+ops.filter(n=>n.status==='Cancelled').length+')';
     bar.querySelector('.gap').onchange=()=>{ wrap(); pack(); fit(); };
     bar.querySelector('.all').onclick=()=>{ if(focus) setFocus(focus); };
     bar.querySelector('.tidy').onclick=()=>{ tidy(); draw(); };
