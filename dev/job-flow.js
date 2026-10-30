@@ -33,7 +33,7 @@
   const OLD=document.getElementById('iscflow'); if(OLD) OLD.remove();
 
   const C={ page:'#0c0d12', panel:'#191a1f', card:'#22242a', box:'#15171c', line:'#2e3138',
-    text:'#e6e6f0', dim:'#8a8f9c', orange:'#F58220', bad:'#e5484d',
+    text:'#e6e6f0', dim:'#8a8f9c', orange:'#F58220', bad:'#e5484d', badBox:'#2e1317',
     Pending:'#5b6579', Ready:'#3987e5', Paused:'#b8862f', Complete:'#199e70',
     Cancelled:'#6a3b3b', Running:'#2fd18b' };
   const GW=186, HEAD=19, OPH=25, PADB=7, COLGAP=210, SUBGAP=26, PAD=70;
@@ -94,8 +94,8 @@
     chip('Pending',C.Pending)+chip('Ready',C.Ready)+chip('Running',C.Running)+
     chip('Paused',C.Paused)+chip('Complete',C.Complete)+chip('Cancelled',C.Cancelled)+
     '<span style="width:10px"></span>'+
-    '<span style="border:2px solid '+C.bad+';color:'+C.bad+';font-weight:600;padding:1px 8px;'+
-      'border-radius:4px">out of order</span>'+
+    '<span style="background:'+C.badBox+';border:2px solid '+C.bad+';color:'+C.bad+
+      ';font-weight:600;padding:1px 8px;border-radius:4px">out of order</span>'+
     '<span style="color:'+C.dim+'">started before something it depends on finished</span>'+
     '<span style="flex:1"></span>'+
     '<span style="color:'+C.dim+'">hover a part to trace it &middot; click to isolate its chain '+
@@ -290,7 +290,7 @@
         g.oop = oopItems.has(g.item);
         b+='<g class="g" data-item="'+esc(g.item)+'" data-i="'+g.idx+'" data-nb="'+nb.join(' ')+
           '" opacity="'+(lit?1:0.12)+'">'+
-          '<rect x="'+f(x)+'" y="'+f(y)+'" width="'+GW+'" height="'+f(g.h)+'" rx="7" fill="'+C.box+
+          '<rect x="'+f(x)+'" y="'+f(y)+'" width="'+GW+'" height="'+f(g.h)+'" rx="7" fill="'+(g.oop?C.badBox:C.box)+
             '" stroke="'+(g===focus?C.orange:(g.oop?C.bad:C.line))+
             '" stroke-width="'+(g===focus||g.oop?2:1.2)+'"/>'+
           '<text x="'+f(x+9)+'" y="'+f(y+13.5)+'" fill="'+C.text+'" font-size="10.5" font-weight="700">'+
