@@ -37,7 +37,7 @@ const ISCOpenFlow = () => {
   const OLD=document.getElementById('iscflow'); if(OLD) OLD.remove();
 
   const C={ page:'#0c0d12', panel:'#191a1f', card:'#22242a', box:'#15171c', line:'#2e3138',
-    text:'#e6e6f0', dim:'#8a8f9c', orange:'#F58220', bad:'#e5484d', badBox:'#2e1317', bom:'#8f7ae6', wo:'#4fd1d9',
+    text:'#e6e6f0', dim:'#8a8f9c', orange:'#F58220', bad:'#e5484d', badBox:'#2e1317', bom:'#8f7ae6', wo:'#a9b6c9',
     Pending:'#5b6579', Ready:'#3987e5', Paused:'#b8862f', Complete:'#199e70',
     Cancelled:'#6a3b3b', Running:'#2fd18b' };
   const GW=186, HEAD=19, OPH=25, CARDH=21, GUT=54, PADB=7, COLGAP=210, SUBGAP=26, PAD=70;
@@ -111,9 +111,9 @@ const ISCOpenFlow = () => {
     '<span style="color:'+C.dim+'">in the BOM, but no routing link</span>'+
     '<span style="width:10px"></span>'+
     '<svg width="30" height="15"><rect x="9" y="0" width="21" height="6" rx="1.5" fill="'+C.Ready+
-      '"/><rect x="0" y="8" width="9" height="6" rx="1.5" fill="'+C.orange+
+      '"/><rect x="0" y="8" width="9" height="6" rx="1.5" fill="'+C.wo+
       '"/><rect x="9" y="8" width="21" height="6" rx="1.5" fill="'+C.Ready+'"/></svg>'+
-    '<span style="color:'+C.dim+'">orange block = in a work order (number inside)</span>'+
+    '<span style="color:'+C.dim+'">pale block = in a work order (number inside)</span>'+
     '<span style="flex:1"></span>'+
     '<span style="color:'+C.dim+'">hover a part to trace it &middot; <b style="color:'+C.text+
       '">click a part to pin that highlight</b> &middot; click an operation to open Job Tracking</span>';
@@ -364,10 +364,10 @@ const ISCOpenFlow = () => {
                operation is in one, left empty when it is not. Same row, same height - so the
                orange forms a readable column down the chart instead of adding a second band. */
             (o.wo?'<rect x="'+f(x+5)+'" y="'+f(oy+2)+'" width="'+GUT+'" height="'+CARDH+
-              '" rx="4" fill="'+C.orange+'" stroke="'+(o.oop?C.bad:C.orange)+
+              '" rx="4" fill="'+C.wo+'" stroke="'+(o.oop?C.bad:C.wo)+
               '" stroke-width="'+(o.oop?2:1.3)+'"/>'+
-              '<text x="'+f(x+5+GUT/2)+'" y="'+f(oy+15)+'" text-anchor="middle" fill="#1a1206" '+
-              'font-size="9.5" font-weight="800">'+o.wo+'</text>' : '')+
+              '<text x="'+f(x+5+GUT/2)+'" y="'+f(oy+15)+'" text-anchor="middle" fill="'+ink(C.wo)+
+              '" font-size="9.5" font-weight="800">'+o.wo+'</text>' : '')+
             '<rect x="'+f(x+5+GUT)+'" y="'+f(oy+2)+'" width="'+(GW-10-GUT)+'" height="'+CARDH+
               '" rx="4" fill="'+col+'" stroke="'+(o.oop?C.bad:col)+
               '" stroke-width="'+(o.oop?2:1.3)+'"/>'+
