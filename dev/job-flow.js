@@ -33,7 +33,7 @@
   const OLD=document.getElementById('iscflow'); if(OLD) OLD.remove();
 
   const C={ page:'#0c0d12', panel:'#191a1f', card:'#22242a', box:'#15171c', line:'#2e3138',
-    text:'#e6e6f0', dim:'#8a8f9c', orange:'#F58220', bad:'#e5484d', badBox:'#2e1317',
+    text:'#e6e6f0', dim:'#8a8f9c', orange:'#F58220', bad:'#e5484d', badBox:'#2e1317', bom:'#8f7ae6',
     Pending:'#5b6579', Ready:'#3987e5', Paused:'#b8862f', Complete:'#199e70',
     Cancelled:'#6a3b3b', Running:'#2fd18b' };
   const GW=186, HEAD=19, OPH=25, PADB=7, COLGAP=210, SUBGAP=26, PAD=70;
@@ -51,6 +51,7 @@
   bar.innerHTML='<span style="background:'+C.orange+';color:#1a1206;font-weight:700;font-size:11px;'+
     'padding:3px 7px;border-radius:5px">ISC</span><strong>Job Flow</strong>'+
     '<span class="sub" style="color:'+C.dim+'"></span>'+
+    '<span class="bom" style="color:'+C.bom+';font-weight:600"></span>'+
     '<span class="oop" style="color:'+C.bad+';font-weight:600"></span>'+
     '<span class="focus" style="color:'+C.orange+';font-weight:600"></span>'+
     '<span style="flex:1"></span>'+
@@ -98,6 +99,10 @@
     '<span style="background:'+C.badBox+';border:2px solid '+C.bad+';color:'+C.bad+
       ';font-weight:600;padding:1px 8px;border-radius:4px">out of order</span>'+
     '<span style="color:'+C.dim+'">started before something it depends on finished</span>'+
+    '<span style="width:10px"></span>'+
+    '<svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="'+C.bom+
+      '" stroke-width="2" stroke-dasharray="5 4"/></svg>'+
+    '<span style="color:'+C.dim+'">in the BOM, but no routing link</span>'+
     '<span style="flex:1"></span>'+
     '<span style="color:'+C.dim+'">hover a part to trace it &middot; <b style="color:'+C.text+
       '">click a part to pin that highlight</b> &middot; click an operation to open Job Tracking</span>';
@@ -109,8 +114,14 @@
     catch(e){ body.innerHTML='<div style="padding:60px;text-align:center;color:'+C.dim+'">Failed to load: '+esc(e.message)+'</div>'; return; }
 
     const ops=[], byId=new Map(), itemDepth=new Map();
+    /* inputItemIds are CATALOG item ids, not itemToMake ids - resolving them against the wrong
+       key makes every assembly look like it consumes nothing. Map by itemReference.id. */
+    const refToItem=new Map(), itemInputs=new Map();
     for(const it of (j.itemsToMake||[])){
       const item=(it.itemReference&&(it.itemReference.number||it.itemReference.name))||'?';
+      const rid=it.itemReference&&it.itemReference.id;
+      if(rid&&!refToItem.has(rid)) refToItem.set(rid,item);
+      if(!itemInputs.has(item)) itemInputs.set(item,(it.inputItemIds||[]).slice());
       if(!itemDepth.has(item)) itemDepth.set(item, it.depth||0);
       for(const o of (it.operations||[])){
         ops.push({ id:o.id, item, op:(o.operation&&o.operation.name)||'?', status:o.status,
@@ -136,7 +147,7 @@
       if(n.why.length){ n.oop=true; oopItems.add(n.item); }
     });
 
-    let cols=[], bands=[], groups=[], gByItem=new Map(), links=[], svg=null, view={x:0,y:0,k:1};
+    let cols=[], bands=[], groups=[], gByItem=new Map(), links=[], bomLinks=[], svg=null, view={x:0,y:0,k:1};
     let focus=null, hoverCss=null;
 
     /* Focus: the whole upstream + downstream chain of one part. With 257 cross-part links
@@ -180,6 +191,25 @@
       groups.forEach(g=>{ g.in=[]; g.out=[]; });
       for(const l of links){ l.a.g.out.push(l.b.g); l.b.g.in.push(l.a.g); }
 
+      /* A subassembly can be in its parent's BOM and still have no routing dependency into it.
+         Fulcrum then has nothing telling the scheduler to build the child first, and the part
+         dead-ends in this chart instead of funnelling to the top assembly. Draw those BOM edges
+         dashed so the funnel is complete AND the missing dependency is visible. */
+      bomLinks=[];
+      const have=new Set(links.map(l=>l.a.g.item+'>'+l.b.g.item));
+      for(const [item,inputs] of itemInputs){
+        const pg=gByItem.get(item); if(!pg||!pg.ops.length) continue;
+        for(const rid of inputs){
+          const child=refToItem.get(rid);
+          if(!child||child===item) continue;
+          const cg=gByItem.get(child);
+          if(!cg||!cg.ops.length||have.has(child+'>'+item)) continue;
+          have.add(child+'>'+item);
+          bomLinks.push({a:cg.ops[cg.ops.length-1], b:pg.ops[0], bom:true});
+          cg.out.push(pg); pg.in.push(cg);
+        }
+      }
+
       // deepest BOM level on the LEFT, top assembly on the RIGHT - parts flow into assemblies
       const maxL=Math.max(...groups.map(g=>g.lvl));
       cols=[];
@@ -188,6 +218,8 @@
       tidy();
       bar.querySelector('.sub').textContent=j.name+' - '+groups.length+' part numbers, '+
         live.length+' operations, '+links.length+' cross-part links, '+cols.length+' BOM levels';
+      bar.querySelector('.bom').textContent = bomLinks.length
+        ? (bomLinks.length+' BOM links with no routing dependency') : '';
       const nOop=ops.filter(n=>n.oop).length;
       bar.querySelector('.oop').textContent = nOop
         ? (oopItems.size+' parts out of order ('+nOop+' ops)') : '';
@@ -262,7 +294,7 @@
       groups.forEach((g,i)=>g.idx=i);
       const inFocus = focus ? chain(focus) : null;
       let e='';
-      for(const l of links){
+      for(const l of links.concat(bomLinks)){
         const A=opPos(l.a), B=opPos(l.b);
         const x1=A.right, y1=A.y, x2=B.left, y2=B.y, mx=(x1+x2)/2;
         const ga=l.a.g, gb=l.b.g;
@@ -270,8 +302,9 @@
         const hot = inFocus && (ga===focus||gb===focus);
         e+='<path data-a="'+ga.idx+'" data-b="'+gb.idx+'" d="M'+f(x1)+' '+f(y1)+' C'+f(mx)+' '+f(y1)+
            ' '+f(mx)+' '+f(y2)+' '+f(x2)+' '+f(y2)+'" fill="none" stroke="'+
-           (on?(hot?C.orange:'#6f7d9c'):'#49536a')+'" stroke-width="'+(on?(hot?2:1.3):1)+
-           '" stroke-opacity="'+(on?(hot?1:0.7):0.05)+'"/>';
+           (on?(hot?C.orange:(l.bom?C.bom:'#6f7d9c')):'#49536a')+'" stroke-width="'+(on?(hot?2:1.3):1)+
+           '" stroke-opacity="'+(on?(hot?1:(l.bom?0.85:0.7)):0.05)+'"'+
+           (l.bom?' stroke-dasharray="5 4"':'')+'/>';
       }
       let head='';
       bands.forEach((subs,bi)=>{
