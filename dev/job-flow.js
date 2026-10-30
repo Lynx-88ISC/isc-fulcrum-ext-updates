@@ -54,7 +54,7 @@
 
   const body=document.createElement('div');
   body.style.cssText='flex:1;overflow:auto;position:relative';
-  body.innerHTML='<div style="padding:60px;text-align:center;color:'+C.dim+'">Loading the job from Fulcrum (one call, ~11 MB)…</div>';
+  body.innerHTML='<div style="padding:60px;text-align:center;color:'+C.dim+'">Loading the job from Fulcrum (one call, ~11 MB)...</div>';
   root.appendChild(body);
 
   const jobId = (location.pathname.match(/\/ui\/jobs\/([0-9a-f]{24})/)||[])[1];
