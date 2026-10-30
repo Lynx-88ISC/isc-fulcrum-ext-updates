@@ -44,8 +44,13 @@ const ISCOpenFlow = (opts) => {
 
   const root=document.createElement('div'); root.id='iscflow';
   root.style.cssText='position:fixed;inset:0;z-index:2147483600;background:'+C.page+';color:'+C.text+
-    ';font:14px Inter,system-ui,sans-serif;display:flex;flex-direction:column';
+    ';font:14px Inter,system-ui,sans-serif;display:flex;flex-direction:column;'+
+    'user-select:none;-webkit-user-select:none';
   document.body.appendChild(root);
+
+  const css=document.createElement('style');
+  css.textContent='#iscflow input,#iscflow select{user-select:text;-webkit-user-select:text}';
+  root.appendChild(css);
 
   const btn='background:'+C.card+';color:'+C.text+';border:1px solid '+C.line+
     ';border-radius:6px;padding:5px 10px;cursor:pointer;font:600 12px Inter';
@@ -579,6 +584,9 @@ const ISCOpenFlow = (opts) => {
          practice impossible. A click is a click until the pointer travels 4px. */
       const SLOP=4, locked=()=>bar.querySelector('.lock').checked;
       body.onmousedown=ev=>{
+        // without this a pan drags a text selection across the chart and Edge pops its
+        // selection toolbar over the top; form fields must still get their default behaviour
+        if(!/^(INPUT|SELECT|TEXTAREA)$/.test(ev.target.tagName||'')) ev.preventDefault();
         const gEl=ev.target.closest&&ev.target.closest('g.g');
         if(gEl){ const nEl=ev.target.closest('g.n');
           drag={ g:gByItem.get(gEl.dataset.item), node:nEl?byId.get(nEl.dataset.id):null,
