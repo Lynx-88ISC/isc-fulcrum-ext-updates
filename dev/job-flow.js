@@ -33,7 +33,7 @@
   const OLD=document.getElementById('iscflow'); if(OLD) OLD.remove();
 
   const C={ page:'#0c0d12', panel:'#191a1f', card:'#22242a', box:'#15171c', line:'#2e3138',
-    text:'#e6e6f0', dim:'#8a8f9c', orange:'#F58220',
+    text:'#e6e6f0', dim:'#8a8f9c', orange:'#F58220', bad:'#e5484d',
     Pending:'#5b6579', Ready:'#3987e5', Paused:'#b8862f', Complete:'#199e70',
     Cancelled:'#6a3b3b', Running:'#199e70' };
   const GW=186, HEAD=19, OPH=25, PADB=7, COLGAP=210, SUBGAP=26, PAD=70;
@@ -51,6 +51,7 @@
   bar.innerHTML='<span style="background:'+C.orange+';color:#1a1206;font-weight:700;font-size:11px;'+
     'padding:3px 7px;border-radius:5px">ISC</span><strong>Job Flow</strong>'+
     '<span class="sub" style="color:'+C.dim+'"></span>'+
+    '<span class="oop" style="color:'+C.bad+';font-weight:600"></span>'+
     '<span class="focus" style="color:'+C.orange+';font-weight:600"></span>'+
     '<span style="flex:1"></span>'+
     '<label style="color:'+C.dim+'"><input type="checkbox" class="hideC"> hide complete <b class="nC"></b></label>'+
@@ -102,6 +103,20 @@
     }
     ops.forEach(n=>byId.set(n.id,n));
     ops.forEach(n=>{ n.prev=n.prev.filter(p=>byId.has(p)); });
+
+    /* Out of order: an operation that has been started while something it depends on has not
+       finished. Paused counts as started - the clock ran. Cancelled counts as satisfied: a
+       skipped step is a decision, not a violation.
+       Computed on the FULL op set, never on the hide-filtered one - hiding complete operations
+       would otherwise remove the very predecessors that make the rest look legal. */
+    const STARTED={Complete:1,Running:1,Paused:1}, SATISFIED={Complete:1,Cancelled:1};
+    const oopItems=new Set();
+    ops.forEach(n=>{
+      if(!STARTED[n.status]) return;
+      n.why=n.prev.map(p=>byId.get(p)).filter(p=>!SATISFIED[p.status])
+        .map(p=>(p.item===n.item?'':p.item+' / ')+p.op+' ('+p.status+')');
+      if(n.why.length){ n.oop=true; oopItems.add(n.item); }
+    });
 
     let cols=[], bands=[], groups=[], gByItem=new Map(), links=[], svg=null, view={x:0,y:0,k:1};
     let focus=null, hoverCss=null;
@@ -155,6 +170,9 @@
       tidy();
       bar.querySelector('.sub').textContent=j.name+' - '+groups.length+' part numbers, '+
         live.length+' operations, '+links.length+' cross-part links, '+cols.length+' BOM levels';
+      const nOop=ops.filter(n=>n.oop).length;
+      bar.querySelector('.oop').textContent = nOop
+        ? (oopItems.size+' parts out of order ('+nOop+' ops)') : '';
     }
 
     /* Layout: columns by BOM level, but a level with 83 parts would be a 6000px wall against
@@ -252,17 +270,19 @@
         const x=g.x-GW/2, y=g.y-g.h/2;
         const nb=[g.idx].concat(g.in.map(n=>n.idx), g.out.map(n=>n.idx));
         const lit = !inFocus || inFocus.has(g);
+        g.oop = oopItems.has(g.item);
         b+='<g class="g" data-item="'+esc(g.item)+'" data-i="'+g.idx+'" data-nb="'+nb.join(' ')+
           '" opacity="'+(lit?1:0.12)+'">'+
           '<rect x="'+f(x)+'" y="'+f(y)+'" width="'+GW+'" height="'+f(g.h)+'" rx="7" fill="'+C.box+
-            '" stroke="'+(g===focus?C.orange:C.line)+'" stroke-width="'+(g===focus?2:1.2)+'"/>'+
+            '" stroke="'+(g===focus?C.orange:(g.oop?C.bad:C.line))+
+            '" stroke-width="'+(g===focus||g.oop?2:1.2)+'"/>'+
           '<text x="'+f(x+9)+'" y="'+f(y+13.5)+'" fill="'+C.text+'" font-size="10.5" font-weight="700">'+
             esc(g.item).slice(0,27)+'</text>';
         g.ops.forEach((o,i)=>{
           const oy=y+HEAD+i*OPH, col=C[o.status]||C.Pending;
           b+='<g class="n" data-id="'+o.id+'">'+
             '<rect x="'+f(x+5)+'" y="'+f(oy+2)+'" width="'+(GW-10)+'" height="'+(OPH-4)+'" rx="4" fill="'+
-              col+'" stroke="'+col+'" stroke-width="1.3"/>'+
+              col+'" stroke="'+(o.oop?C.bad:col)+'" stroke-width="'+(o.oop?2:1.3)+'"/>'+
             '<text x="'+f(x+10)+'" y="'+f(oy+15)+'" fill="'+ink(col)+'" font-size="10" font-weight="600">'+
               esc(o.op).slice(0,20)+(o.hrs?'  '+o.hrs+'h':'')+'</text>'+
             '<title>'+esc(o.item)+'\n'+esc(o.op)+'\n'+o.status+(o.eq?'\n'+esc(o.eq):'')+
