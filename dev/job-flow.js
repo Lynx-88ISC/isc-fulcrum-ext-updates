@@ -153,12 +153,31 @@ const ISCOpenFlow = () => {
           eq:(o.scheduledEquipment&&o.scheduledEquipment.name)||null,
           hrs:+(((o.estimatedDurationTimeInSeconds||o.estimatedRunTimeInSeconds||0)/3600).toFixed(1)),
           prev:(o.previousOperationIds||[]).slice(), order:o.order, itemToMakeId:it.id,
-          wo:(o.workOrderOperationReference||{}).workOrderNumber||null });
+          woNum:(o.workOrderOperationReference||{}).workOrderNumber||null,
+          woId:(o.workOrderOperationReference||{}).workOrderId||null, wo:null });
       }
     }
     // the job name is the last thing read off the raw payload - cache it too, or the cached
     // path throws on j.name and silently renders nothing
     const jobName = cached ? cached.name : (j.name||jobId);
+
+    /* The work order NAME is what Fulcrum shows the operator, and the copy embedded in the job
+       payload goes stale when a work order is renamed - WO number 1299 on 2608-1028-42 carries
+       workOrderName "1299" there while the work order itself is named "1242". Showing the number
+       made the chart disagree with Job Tracking for that one WO. So resolve the live name per
+       work order (~9 calls, 24 KB and 80 ms each) and display that; the number stays in the
+       tooltip, since it is the stable identifier. */
+    if(!cached){
+      const ids=[...new Set(ops.map(o=>o.woId).filter(Boolean))];
+      const live=new Map();
+      await Promise.all(ids.map(async id=>{
+        try { const w=await (await fetch('/api/WorkOrders/'+id,{credentials:'same-origin'})).json();
+          if(w&&w.id) live.set(id, String(w.name||w.number||'')); } catch(e){}
+      }));
+      ops.forEach(o=>{ o.wo = o.woId&&live.has(o.woId) ? live.get(o.woId)
+                            : (o.woNum!=null ? String(o.woNum) : null); });
+    }
+
     if(cached){
       cached.ops.forEach(o=>ops.push(Object.assign({},o)));
       cached.depth.forEach(([k,v])=>itemDepth.set(k,v));
@@ -406,7 +425,8 @@ const ISCOpenFlow = () => {
                question. An op with no tab is not in a work order. */
 
             '<title>'+esc(o.item)+'\n'+esc(o.op)+'\n'+o.status+
-              (o.wo?'\nwork order '+o.wo:'\nnot in a work order')+
+              (o.wo?'\nwork order '+o.wo+(o.woNum!=null&&String(o.woNum)!==String(o.wo)
+                ?' (number '+o.woNum+')':''):'\nnot in a work order')+
               (o.eq?'\n'+esc(o.eq):'')+(o.hrs?'\n'+o.hrs+' h':'')+
               (o.oop?'\n\nOUT OF ORDER - started before:\n  '+o.why.map(esc).join('\n  '):'')+
               '\nclick to open in Job Tracking (new tab)</title></g>';
@@ -516,7 +536,7 @@ const ISCOpenFlow = () => {
     bar.querySelector('.hideX').onchange=()=>{ build(); fit(); };
     (()=>{
       const n={}; ops.forEach(o=>{ if(o.wo) n[o.wo]=(n[o.wo]||0)+1; });
-      const nums=Object.keys(n).sort((a,b)=>a-b);
+      const nums=Object.keys(n).sort((a,b)=>String(a).localeCompare(String(b),undefined,{numeric:true}));
       const sel=bar.querySelector('.wo');
       sel.innerHTML='<option value="">all</option>'+
         '<option value="none">not in a WO ('+ops.filter(o=>!o.wo).length+')</option>'+
