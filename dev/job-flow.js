@@ -156,13 +156,16 @@ const ISCOpenFlow = () => {
           wo:(o.workOrderOperationReference||{}).workOrderNumber||null });
       }
     }
+    // the job name is the last thing read off the raw payload - cache it too, or the cached
+    // path throws on j.name and silently renders nothing
+    const jobName = cached ? cached.name : (j.name||jobId);
     if(cached){
       cached.ops.forEach(o=>ops.push(Object.assign({},o)));
       cached.depth.forEach(([k,v])=>itemDepth.set(k,v));
       cached.inputs.forEach(([k,v])=>itemInputs.set(k,v));
       cached.refs.forEach(([k,v])=>refToItem.set(k,v));
     } else {
-      try { sessionStorage.setItem(CK, JSON.stringify({ t:Date.now(), ops,
+      try { sessionStorage.setItem(CK, JSON.stringify({ t:Date.now(), ops, name:jobName,
         depth:[...itemDepth], inputs:[...itemInputs], refs:[...refToItem] })); } catch(e){}
     }
 
@@ -266,7 +269,7 @@ const ISCOpenFlow = () => {
       groups.forEach(g=>{ const c=maxL-g.lvl; (cols[c]=cols[c]||[]).push(g); g.col=c; });
       cols.forEach((c,i)=>{ if(!c) cols[i]=[]; });
       tidy();
-      bar.querySelector('.sub').textContent=j.name+' - '+groups.length+' part numbers, '+
+      bar.querySelector('.sub').textContent=jobName+' - '+groups.length+' part numbers, '+
         live.length+' operations, '+links.length+' cross-part links, '+cols.length+' BOM levels';
       bar.querySelector('.bom').textContent = bomLinks.length
         ? (bomLinks.length+' BOM links with no routing dependency') : '';
@@ -529,9 +532,15 @@ const ISCOpenFlow = () => {
     bar.querySelector('.tidy').onclick=()=>{ tidy(); draw(); };
     bar.querySelector('.fit').onclick=fit;
 
-    try { const v=JSON.parse(sessionStorage.getItem(VK)||'null');
-      if(v){ build(); view.x=v.x; view.y=v.y; view.k=v.k; draw(); } else { build(); fit(); } }
-    catch(e){ build(); fit(); }
+    try {
+      let v=null; try { v=JSON.parse(sessionStorage.getItem(VK)||'null'); } catch(e){}
+      build();
+      if(v){ view.x=v.x; view.y=v.y; view.k=v.k; draw(); } else fit();
+    } catch(e){
+      body.innerHTML='<div style="padding:60px;text-align:center;color:'+C.dim+
+        '">Could not render: '+esc(e.message)+'</div>';
+      return;
+    }
     try { sessionStorage.setItem('iscflow:open', jobId); } catch(e){}
     setInterval(()=>{ if(!document.getElementById('iscflow')) return;
       try { sessionStorage.setItem(VK, JSON.stringify(view)); } catch(e){} }, 1500);
