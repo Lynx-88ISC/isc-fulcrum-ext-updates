@@ -40,7 +40,7 @@ const ISCOpenFlow = () => {
     text:'#e6e6f0', dim:'#8a8f9c', orange:'#F58220', bad:'#e5484d', badBox:'#2e1317', bom:'#8f7ae6', wo:'#4fd1d9',
     Pending:'#5b6579', Ready:'#3987e5', Paused:'#b8862f', Complete:'#199e70',
     Cancelled:'#6a3b3b', Running:'#2fd18b' };
-  const GW=186, HEAD=19, OPH=25, PADB=7, COLGAP=210, SUBGAP=26, PAD=70;
+  const GW=186, HEAD=19, OPH=28, CARDH=19, TAB=7, PADB=7, COLGAP=210, SUBGAP=26, PAD=70;
 
   const root=document.createElement('div'); root.id='iscflow';
   root.style.cssText='position:fixed;inset:0;z-index:2147483600;background:'+C.page+';color:'+C.text+
@@ -110,7 +110,9 @@ const ISCOpenFlow = () => {
       '" stroke-width="2" stroke-dasharray="5 4"/></svg>'+
     '<span style="color:'+C.dim+'">in the BOM, but no routing link</span>'+
     '<span style="width:10px"></span>'+
-    '<span style="color:'+C.dim+'">work order</span><span class="woLegend"></span>'+
+    '<svg width="22" height="13"><rect x="0" y="0" width="22" height="5" rx="1.5" fill="'+C.Ready+
+      '"/><rect x="9" y="6" width="13" height="5" rx="1.5" fill="'+C.orange+'"/></svg>'+
+    '<span style="color:'+C.dim+'">orange tab = in a work order (number inside)</span>'+
     '<span style="flex:1"></span>'+
     '<span style="color:'+C.dim+'">hover a part to trace it &middot; <b style="color:'+C.text+
       '">click a part to pin that highlight</b> &middot; click an operation to open Job Tracking</span>';
@@ -139,16 +141,6 @@ const ISCOpenFlow = () => {
           wo:(o.workOrderOperationReference||{}).workOrderNumber||null });
       }
     }
-    /* A colour per work order, APPENDED to the card rather than competing with the status fill.
-       Hues chosen to sit outside the status palette (grey/blue/green/amber/dark red) and outside
-       the colours already spoken for: ISC orange, the out-of-order red, the BOM-link violet. */
-    const WOPAL=['#e05fa8','#4fd1d9','#b388ff','#9ccc3b','#ffd166',
-                 '#ff7ab6','#7ad1ff','#d4a373','#a0e8af','#f4845f'];
-    const woHue=new Map();
-    [...new Set(ops.map(o=>o.wo).filter(Boolean))].sort((a,b)=>a-b)
-      .forEach((w,i)=>woHue.set(w,WOPAL[i%WOPAL.length]));
-    const woColor=w=>woHue.get(w)||C.dim;
-
     ops.forEach(n=>byId.set(n.id,n));
     ops.forEach(n=>{ n.prev=n.prev.filter(p=>byId.has(p)); });
 
@@ -367,16 +359,19 @@ const ISCOpenFlow = () => {
         g.ops.forEach((o,i)=>{
           const oy=y+HEAD+i*OPH, col=C[o.status]||C.Pending;
           b+='<g class="n" data-id="'+o.id+'"'+(o.wo?' data-wo="'+o.wo+'"':'')+'>'+
-            '<rect x="'+f(x+5)+'" y="'+f(oy+2)+'" width="'+(GW-10)+'" height="'+(OPH-4)+'" rx="4" fill="'+
+            '<rect x="'+f(x+5)+'" y="'+f(oy+2)+'" width="'+(GW-10)+'" height="'+CARDH+'" rx="4" fill="'+
               col+'" stroke="'+(o.oop?C.bad:col)+'" stroke-width="'+(o.oop?2:1.3)+'"/>'+
             '<text x="'+f(x+10)+'" y="'+f(oy+15)+'" fill="'+ink(col)+'" font-size="10" font-weight="600">'+
-              esc(o.op).slice(0,o.wo?15:20)+(o.hrs?'  '+o.hrs+'h':'')+'</text>'+
-            (o.wo?(()=>{ const lab=String(o.wo), wc=woColor(o.wo),
-                w=lab.length*6+10, bx=x+GW-7-w;
-              return '<rect x="'+f(bx)+'" y="'+f(oy+4)+'" width="'+f(w)+'" height="'+(OPH-8)+
-                '" rx="3" fill="'+wc+'"/>'+
-                '<text x="'+f(bx+w/2)+'" y="'+f(oy+15.5)+'" text-anchor="middle" fill="'+ink(wc)+
-                '" font-size="9.5" font-weight="700">'+lab+'</text>'; })():'')+
+              esc(o.op).slice(0,20)+(o.hrs?'  '+o.hrs+'h':'')+'</text>'+
+            /* One colour, not nine. Being in a work order is a yes/no fact, so it reads as a
+               tab appended under the card - ISC orange, filled solid - and WHICH work order is
+               the number inside it. Nine hues made the viewer decode a key to answer a binary
+               question. An op with no tab is not in a work order. */
+            (o.wo?(()=>{ const lab=String(o.wo), tw=(GW-10)*0.55, bx=x+5+(GW-10)-tw;
+              return '<rect x="'+f(bx)+'" y="'+f(oy+2+CARDH)+'" width="'+f(tw)+'" height="'+TAB+
+                '" rx="2" fill="'+C.orange+'"/>'+
+                '<text x="'+f(bx+tw/2)+'" y="'+f(oy+2+CARDH+TAB-1.6)+'" text-anchor="middle" '+
+                'fill="#1a1206" font-size="6.2" font-weight="800">'+lab+'</text>'; })():'')+
             '<title>'+esc(o.item)+'\n'+esc(o.op)+'\n'+o.status+
               (o.wo?'\nwork order '+o.wo:'\nnot in a work order')+
               (o.eq?'\n'+esc(o.eq):'')+(o.hrs?'\n'+o.hrs+' h':'')+
@@ -488,10 +483,6 @@ const ISCOpenFlow = () => {
         '<option value="none">not in a WO ('+ops.filter(o=>!o.wo).length+')</option>'+
         nums.map(w=>'<option value="'+w+'">'+w+' ('+n[w]+' ops)</option>').join('');
       sel.onchange=()=>woFilter(sel.value);
-      root.querySelector('.woLegend').innerHTML = nums.map(w=>
-        '<span style="background:'+woColor(+w)+';color:'+ink(woColor(+w))+';font-weight:700;'+
-        'font-size:9px;padding:2px 6px;border-radius:3px;margin-left:4px">'+w+'</span>').join('')+
-        '<span style="color:'+C.dim+';margin-left:8px">no chip = not in a work order</span>';
       bar.querySelector('.woCount').textContent = nums.length
         ? (ops.filter(o=>o.wo).length+' ops in '+nums.length+' work orders') : '';
     })();
