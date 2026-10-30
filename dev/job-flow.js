@@ -114,8 +114,8 @@ const ISCOpenFlow = () => {
       'padding:2px 7px;border-radius:4px">1219</span>'+
     '<span style="color:'+C.dim+'">work order number on the card</span>'+
     '<span style="width:10px"></span>'+
-    '<span style="color:'+C.dim+'">zoom out and each part collapses to one block: its overall '+
-      'state and how far through it is</span>'+
+    '<span style="color:'+C.dim+'">zoomed out, each part is one block: its state, its progress, '+
+      'and its work order in large type</span>'+
     '<span style="flex:1"></span>'+
     '<span style="color:'+C.dim+'">hover a part to trace it &middot; <b style="color:'+C.text+
       '">click a part to pin that highlight</b> &middot; click an operation to open Job Tracking</span>';
@@ -362,7 +362,20 @@ const ISCOpenFlow = () => {
               '" stroke-width="'+(g===focus||g.oop?4:1.2)+'"/>'+
             (pr>0&&pr<1 ? '<rect x="'+f(x+8)+'" y="'+f(y+g.h-9)+'" width="'+f((GW-16)*pr)+
               '" height="4" rx="2" fill="'+ink(rc)+'" fill-opacity="0.55"/>' : '')+
+            /* A collapsed block has room for ONE big label where six 10px rows had none, so the
+               work order survives bird's-eye at a size that actually reads. This is the whole
+               point of the roll-up - summarise, do not just shrink. */
+            (()=>{ const w=[...new Set(g.ops.map(o=>o.wo).filter(Boolean))];
+              if(!w.length) return '';
+              const lab = w.length===1 ? String(w[0])
+                        : w.slice(0,2).join(' ')+(w.length>2?' +'+(w.length-2):'');
+              const fs = Math.max(13, Math.min(46, (GW-26)/(lab.length*0.60)));
+              return '<text x="'+f(x+GW/2)+'" y="'+f(y+g.h/2+fs*0.34)+'" text-anchor="middle" fill="'+
+                ink(rc)+'" fill-opacity="0.9" font-size="'+f(fs)+'" font-weight="800">'+lab+'</text>';
+            })()+
             '<title>'+esc(g.item)+'\n'+g.ops.length+' operations, '+Math.round(pr*100)+'% complete'+
+              (()=>{ const w=[...new Set(g.ops.map(o=>o.wo).filter(Boolean))];
+                return w.length?'\nwork orders: '+w.join(', '):'\nno work order'; })()+
               (g.oop?'\nOUT OF ORDER':'')+'</title>'+
             '</g>';
           continue;
@@ -384,7 +397,7 @@ const ISCOpenFlow = () => {
             /* Outlined, in the card's own ink colour - a filled badge competed with the status
                fill it sits on (orange vs the Paused amber especially) and outranked the signal
                it was meant to annotate. Ink adapts per status, so it cannot clash. */
-            (LOD===2&&o.wo?(()=>{ const lab=String(o.wo), w=lab.length*6+10, bx=x+GW-9-w;
+            (o.wo?(()=>{ const lab=String(o.wo), w=lab.length*6+10, bx=x+GW-9-w;
               return '<rect x="'+f(bx)+'" y="'+f(oy+5)+'" width="'+f(w)+'" height="15" rx="3.5" '+
                 'fill="none" stroke="'+ink(col)+'" stroke-opacity="0.5" stroke-width="1"/>'+
                 '<text x="'+f(bx+w/2)+'" y="'+f(oy+15.5)+'" text-anchor="middle" fill="'+ink(col)+
