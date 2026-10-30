@@ -37,7 +37,7 @@ const ISCOpenFlow = () => {
   const OLD=document.getElementById('iscflow'); if(OLD) OLD.remove();
 
   const C={ page:'#0c0d12', panel:'#191a1f', card:'#22242a', box:'#15171c', line:'#2e3138',
-    text:'#e6e6f0', dim:'#8a8f9c', orange:'#F58220', bad:'#e5484d', badBox:'#2e1317', bom:'#8f7ae6',
+    text:'#e6e6f0', dim:'#8a8f9c', orange:'#F58220', bad:'#e5484d', badBox:'#2e1317', bom:'#8f7ae6', wo:'#4fd1d9',
     Pending:'#5b6579', Ready:'#3987e5', Paused:'#b8862f', Complete:'#199e70',
     Cancelled:'#6a3b3b', Running:'#2fd18b' };
   const GW=186, HEAD=19, OPH=25, PADB=7, COLGAP=210, SUBGAP=26, PAD=70;
@@ -55,12 +55,14 @@ const ISCOpenFlow = () => {
   bar.innerHTML='<span style="background:'+C.orange+';color:#1a1206;font-weight:700;font-size:11px;'+
     'padding:3px 7px;border-radius:5px">ISC</span><strong>Job Flow</strong>'+
     '<span class="sub" style="color:'+C.dim+'"></span>'+
+    '<span class="woCount" style="color:'+C.wo+';font-weight:600"></span>'+
     '<span class="bom" style="color:'+C.bom+';font-weight:600"></span>'+
     '<span class="oop" style="color:'+C.bad+';font-weight:600"></span>'+
     '<span class="focus" style="color:'+C.orange+';font-weight:600"></span>'+
     '<span style="flex:1"></span>'+
     '<label style="color:'+C.dim+'"><input type="checkbox" class="hideC"> hide complete <b class="nC"></b></label>'+
     '<label style="color:'+C.dim+'"><input type="checkbox" class="hideX" checked> hide cancelled <b class="nX"></b></label>'+
+    '<label style="color:'+C.dim+'">WO <select class="wo" style="'+btn+'padding:4px 6px"></select></label>'+
     '<label style="color:'+C.dim+'"><input type="checkbox" class="lock" checked> lock layout</label>'+
     '<label style="color:'+C.dim+'">gap <input type="range" class="gap" min="4" max="90" value="22" style="vertical-align:middle;width:110px"></label>'+
     '<button class="all" style="'+btn+'">Show all</button>'+
@@ -107,6 +109,10 @@ const ISCOpenFlow = () => {
     '<svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="'+C.bom+
       '" stroke-width="2" stroke-dasharray="5 4"/></svg>'+
     '<span style="color:'+C.dim+'">in the BOM, but no routing link</span>'+
+    '<span style="width:10px"></span>'+
+    '<span style="background:'+C.card+';color:'+C.text+';font-weight:700;font-size:9px;'+
+      'padding:3px 7px;border-radius:4px">1219</span>'+
+    '<span style="color:'+C.dim+'">work order number on the card</span>'+
     '<span style="flex:1"></span>'+
     '<span style="color:'+C.dim+'">hover a part to trace it &middot; <b style="color:'+C.text+
       '">click a part to pin that highlight</b> &middot; click an operation to open Job Tracking</span>';
@@ -131,7 +137,8 @@ const ISCOpenFlow = () => {
         ops.push({ id:o.id, item, op:(o.operation&&o.operation.name)||'?', status:o.status,
           eq:(o.scheduledEquipment&&o.scheduledEquipment.name)||null,
           hrs:+(((o.estimatedDurationTimeInSeconds||o.estimatedRunTimeInSeconds||0)/3600).toFixed(1)),
-          prev:(o.previousOperationIds||[]).slice(), order:o.order, itemToMakeId:it.id });
+          prev:(o.previousOperationIds||[]).slice(), order:o.order, itemToMakeId:it.id,
+          wo:(o.workOrderOperationReference||{}).workOrderNumber||null });
       }
     }
     ops.forEach(n=>byId.set(n.id,n));
@@ -349,11 +356,13 @@ const ISCOpenFlow = () => {
             esc(g.item).slice(0,27)+'</text>';
         g.ops.forEach((o,i)=>{
           const oy=y+HEAD+i*OPH, col=C[o.status]||C.Pending;
-          b+='<g class="n" data-id="'+o.id+'">'+
+          b+='<g class="n" data-id="'+o.id+'"'+(o.wo?' data-wo="'+o.wo+'"':'')+'>'+
             '<rect x="'+f(x+5)+'" y="'+f(oy+2)+'" width="'+(GW-10)+'" height="'+(OPH-4)+'" rx="4" fill="'+
               col+'" stroke="'+(o.oop?C.bad:col)+'" stroke-width="'+(o.oop?2:1.3)+'"/>'+
             '<text x="'+f(x+10)+'" y="'+f(oy+15)+'" fill="'+ink(col)+'" font-size="10" font-weight="600">'+
-              esc(o.op).slice(0,20)+(o.hrs?'  '+o.hrs+'h':'')+'</text>'+
+              esc(o.op).slice(0,o.wo?15:20)+(o.hrs?'  '+o.hrs+'h':'')+'</text>'+
+            (o.wo?'<text x="'+f(x+GW-10)+'" y="'+f(oy+15)+'" text-anchor="end" fill="'+ink(col)+
+              '" fill-opacity="0.62" font-size="9" font-weight="700">'+o.wo+'</text>':'')+
             '<title>'+esc(o.item)+'\n'+esc(o.op)+'\n'+o.status+(o.eq?'\n'+esc(o.eq):'')+
               (o.hrs?'\n'+o.hrs+' h':'')+'\nclick to open in Job Tracking</title></g>';
         });
@@ -373,6 +382,18 @@ const ISCOpenFlow = () => {
       view.x=-x0*view.k+(r.width-(x1-x0)*view.k)/2;
       view.y=-y0*view.k+(r.height-(y1-y0)*view.k)/2;
       draw();
+    }
+
+    /* Which operations have been claimed by a work order. Status already owns the card fill and
+       red already means out-of-order, so the WO shows as a number on the card's right edge -
+       it has to say WHICH work order, not just that there is one. */
+    let woCss=null;
+    function woFilter(v){
+      if(!woCss){ woCss=document.createElement('style'); root.appendChild(woCss); }
+      if(!v){ woCss.textContent=''; return; }
+      woCss.textContent = (v==='none')
+        ? '#iscflow .vp g.n[data-wo]{opacity:.12}'
+        : '#iscflow .vp g.n:not([data-wo="'+v+'"]){opacity:.12}';
     }
 
     function hover(i){
@@ -442,6 +463,17 @@ const ISCOpenFlow = () => {
 
     bar.querySelector('.hideC').onchange=()=>{ build(); fit(); };
     bar.querySelector('.hideX').onchange=()=>{ build(); fit(); };
+    (()=>{
+      const n={}; ops.forEach(o=>{ if(o.wo) n[o.wo]=(n[o.wo]||0)+1; });
+      const nums=Object.keys(n).sort((a,b)=>a-b);
+      const sel=bar.querySelector('.wo');
+      sel.innerHTML='<option value="">all</option>'+
+        '<option value="none">not in a WO ('+ops.filter(o=>!o.wo).length+')</option>'+
+        nums.map(w=>'<option value="'+w+'">'+w+' ('+n[w]+' ops)</option>').join('');
+      sel.onchange=()=>woFilter(sel.value);
+      bar.querySelector('.woCount').textContent = nums.length
+        ? (ops.filter(o=>o.wo).length+' ops in '+nums.length+' work orders') : '';
+    })();
     bar.querySelector('.nC').textContent='('+ops.filter(n=>n.status==='Complete').length+')';
     bar.querySelector('.nX').textContent='('+ops.filter(n=>n.status==='Cancelled').length+')';
     bar.querySelector('.gap').onchange=()=>{ wrap(); pack(); fit(); };
