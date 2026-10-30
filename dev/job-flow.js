@@ -26,6 +26,10 @@
  *
  * Only CROSS-PART links are drawn - sequence inside a part is implied by the stack in its box.
  *
+ * FILTERS DO NOT CHANGE TOPOLOGY. Hidden operations are spliced out, not cut out. The BOM and
+ * the routing agree on this job - 256 BOM pairs, 256 routing pairs, no gap - so any part that
+ * appears not to reach the top assembly is a bug in this file, not bad data in Fulcrum.
+ *
  * `order` on an operation is a SPARSE sort key: a gap is not a completed step. Edges are the only
  * real sequence. Read-only: one GET, no writes.
  */
@@ -182,9 +186,23 @@
         g.ops.forEach(o=>o.g=g);
       });
 
+      /* Hiding an operation must never sever the graph - splice it out instead, wiring each of
+         its predecessors to each of its successors.
+         Learned the hard way on 2608-1028-42: the Assembly operation on SS001/SS002/SS003 is
+         Cancelled, and those are the join points every subassembly feeds into. Dropping them
+         orphaned 28 parts and made 38 real routing links look missing. A filter is a view, not
+         a change to the topology. */
+      const effPrev=n=>{
+        const out=new Set(), seen=new Set(), st=n.prev.slice();
+        while(st.length){
+          const id=st.pop(); if(seen.has(id)) continue; seen.add(id);
+          const prev=byId.get(id); if(!prev) continue;
+          if(ok.has(prev.id)) out.add(prev.id); else st.push.apply(st,prev.prev);
+        }
+        return out;
+      };
       links=[];
-      for(const n of live) for(const p of n.prev){
-        if(!ok.has(p)) continue;
+      for(const n of live) for(const p of effPrev(n)){
         const a=byId.get(p); if(a.item===n.item) continue;
         links.push({a,b:n});
       }
