@@ -110,8 +110,8 @@ const ISCOpenFlow = () => {
       '" stroke-width="2" stroke-dasharray="5 4"/></svg>'+
     '<span style="color:'+C.dim+'">in the BOM, but no routing link</span>'+
     '<span style="width:10px"></span>'+
-    '<span style="background:'+C.orange+';color:#1a1206;font-weight:700;font-size:9px;'+
-      'padding:3px 7px;border-radius:4px">1219</span>'+
+    '<span style="border:1px solid '+C.dim+';color:'+C.text+';font-weight:700;font-size:9px;'+
+      'padding:2px 7px;border-radius:4px">1219</span>'+
     '<span style="color:'+C.dim+'">work order number on the card</span>'+
     '<span style="flex:1"></span>'+
     '<span style="color:'+C.dim+'">hover a part to trace it &middot; <b style="color:'+C.text+
@@ -361,10 +361,14 @@ const ISCOpenFlow = () => {
               col+'" stroke="'+(o.oop?C.bad:col)+'" stroke-width="'+(o.oop?2:1.3)+'"/>'+
             '<text x="'+f(x+10)+'" y="'+f(oy+15)+'" fill="'+ink(col)+'" font-size="10" font-weight="600">'+
               esc(o.op).slice(0,o.wo?15:20)+(o.hrs?'  '+o.hrs+'h':'')+'</text>'+
-            (o.wo?(()=>{ const lab=String(o.wo), w=lab.length*6+9, bx=x+GW-9-w;
-              return '<rect x="'+f(bx)+'" y="'+f(oy+5)+'" width="'+f(w)+'" height="15" rx="3.5" fill="'+
-                C.orange+'"/><text x="'+f(bx+w/2)+'" y="'+f(oy+15.5)+'" text-anchor="middle" '+
-                'fill="#1a1206" font-size="9.5" font-weight="700">'+lab+'</text>'; })():'')+
+            /* Outlined, in the card's own ink colour - a filled badge competed with the status
+               fill it sits on (orange vs the Paused amber especially) and outranked the signal
+               it was meant to annotate. Ink adapts per status, so it cannot clash. */
+            (o.wo?(()=>{ const lab=String(o.wo), w=lab.length*6+10, bx=x+GW-9-w;
+              return '<rect x="'+f(bx)+'" y="'+f(oy+5)+'" width="'+f(w)+'" height="15" rx="3.5" '+
+                'fill="none" stroke="'+ink(col)+'" stroke-opacity="0.5" stroke-width="1"/>'+
+                '<text x="'+f(bx+w/2)+'" y="'+f(oy+15.5)+'" text-anchor="middle" fill="'+ink(col)+
+                '" fill-opacity="0.92" font-size="9.5" font-weight="700">'+lab+'</text>'; })():'')+
             '<title>'+esc(o.item)+'\n'+esc(o.op)+'\n'+o.status+
               (o.wo?'\nwork order '+o.wo:'\nnot in a work order')+
               (o.eq?'\n'+esc(o.eq):'')+(o.hrs?'\n'+o.hrs+' h':'')+
