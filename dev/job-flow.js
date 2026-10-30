@@ -33,7 +33,7 @@
  * `order` on an operation is a SPARSE sort key: a gap is not a completed step. Edges are the only
  * real sequence. Read-only: one GET, no writes.
  */
-(() => {
+const ISCOpenFlow = () => {
   const OLD=document.getElementById('iscflow'); if(OLD) OLD.remove();
 
   const C={ page:'#0c0d12', panel:'#191a1f', card:'#22242a', box:'#15171c', line:'#2e3138',
@@ -452,4 +452,39 @@
     build(); fit();
     window.__flow={ops,groups:()=>groups,cols:()=>cols,links:()=>links,fit,tidy};
   })();
+};
+
+/* The launch button lives in Fulcrum's own Operations header, not floating over the page.
+   Anchor: the single childless <h3> reading "Operations" inside .juicy-job-operations-header.
+   Both it and the header are display:block, so the button goes INSIDE the h3 as an inline-block
+   and sits on the title's baseline without touching Fulcrum's layout.
+   700ms poll rather than a MutationObserver: this script also writes DOM, and an observer that
+   watches a subtree it edits feeds itself and locks the tab. */
+(() => {
+  const ID='isc-opchart-btn';
+  const title=()=>{
+    const h=document.querySelector('.juicy-job-operations-header h3');
+    if(h&&h.children.length===0&&h.textContent.trim()==='Operations') return h;
+    return [...document.querySelectorAll('h3')].find(e=>
+      e.children.length===0&&e.textContent.trim()==='Operations')||null;
+  };
+  const make=()=>{
+    const b=document.createElement('button');
+    b.id=ID; b.type='button'; b.textContent='OP CHART';
+    b.style.cssText='margin-left:14px;vertical-align:middle;background:#F58220;color:#1a1206;'+
+      'border:0;border-radius:7px;padding:7px 14px;cursor:pointer;letter-spacing:.4px;'+
+      'font:700 12px Inter,system-ui,sans-serif';
+    b.onmouseenter=()=>{ b.style.filter='brightness(1.08)'; };
+    b.onmouseleave=()=>{ b.style.filter=''; };
+    b.onclick=ev=>{ ev.preventDefault(); ev.stopPropagation(); ISCOpenFlow(); };
+    return b;
+  };
+  setInterval(()=>{
+    if(!/\/ui\/jobs\/[0-9a-f]{24}/.test(location.pathname)){
+      const old=document.getElementById(ID); if(old) old.remove();
+      return;
+    }
+    if(document.getElementById(ID)) return;
+    const h=title(); if(h) h.appendChild(make());
+  },700);
 })();
