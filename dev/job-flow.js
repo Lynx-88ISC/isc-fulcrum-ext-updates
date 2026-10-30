@@ -67,6 +67,7 @@ const ISCOpenFlow = (opts) => {
     '<label style="color:'+C.dim+'">WO <select class="wo" style="'+btn+'padding:4px 6px"></select></label>'+
     '<label style="color:'+C.dim+'"><input type="checkbox" class="lock" checked> lock layout</label>'+
     '<label style="color:'+C.dim+'">gap <input type="range" class="gap" min="4" max="90" value="22" style="vertical-align:middle;width:110px"></label>'+
+    '<button class="legend" style="'+btn+'">Legend</button>'+
     '<button class="reload" style="'+btn+'">Refresh</button>'+
     '<button class="all" style="'+btn+'">Show all</button>'+
     '<button class="tidy" style="'+btn+'">Re-order</button><button class="fit" style="'+btn+'">Fit</button>'+
@@ -101,29 +102,80 @@ const ISCOpenFlow = (opts) => {
 
   const chip=(label,fill)=>'<span style="background:'+fill+';color:'+ink(fill)+
     ';font-weight:600;padding:2px 8px;border-radius:4px">'+label+'</span>';
+  /* The legend was a full-width strip above the chart, which spent a whole row of vertical space
+     on something you read once. It is a floating panel now: bottom right by default, draggable by
+     its header, hideable, and its position and hidden state persist. position:absolute works
+     because root is position:fixed. */
+  const row=(mark,text)=>'<div style="display:flex;align-items:center;gap:7px;margin-top:5px">'+
+    mark+'<span style="color:'+C.dim+'">'+text+'</span></div>';
+
   const leg=document.createElement('div');
-  leg.style.cssText='flex:0 0 auto;display:flex;align-items:center;gap:7px;padding:6px 14px;'+
-    'background:'+C.panel+';border-bottom:1px solid '+C.line+';font-size:11px;flex-wrap:wrap';
-  leg.innerHTML='<span style="color:'+C.dim+'">operation</span>'+
-    chip('Pending',C.Pending)+chip('Ready',C.Ready)+chip('Running',C.Running)+
-    chip('Paused',C.Paused)+chip('Complete',C.Complete)+chip('Cancelled',C.Cancelled)+
-    '<span style="width:10px"></span>'+
-    '<span style="background:'+C.badBox+';border:2px solid '+C.bad+';color:'+C.bad+
-      ';font-weight:600;padding:1px 8px;border-radius:4px">out of order</span>'+
-    '<span style="color:'+C.dim+'">started before something it depends on finished</span>'+
-    '<span style="width:10px"></span>'+
-    '<svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="'+C.bom+
-      '" stroke-width="2" stroke-dasharray="5 4"/></svg>'+
-    '<span style="color:'+C.dim+'">in the BOM, but no routing link</span>'+
-    '<span style="width:10px"></span>'+
-    '<svg width="30" height="15"><rect x="9" y="0" width="21" height="6" rx="1.5" fill="'+C.Ready+
-      '"/><rect x="0" y="8" width="9" height="6" rx="1.5" fill="'+C.wo+
-      '"/><rect x="9" y="8" width="21" height="6" rx="1.5" fill="'+C.Ready+'"/></svg>'+
-    '<span style="color:'+C.dim+'">pale block = in a work order (number inside)</span>'+
-    '<span style="flex:1"></span>'+
-    '<span style="color:'+C.dim+'">type a part number to pin it &middot; hover a part to trace it &middot; <b style="color:'+C.text+
-      '">click a part to pin that highlight</b> &middot; click an operation to open Job Tracking</span>';
-  root.insertBefore(leg, body);
+  leg.id='iscflow-legend';
+  leg.style.cssText='position:absolute;z-index:5;width:250px;padding:0 0 10px;'+
+    'background:'+C.panel+';border:1px solid '+C.line+';border-radius:9px;font-size:11px;'+
+    'box-shadow:0 8px 26px rgba(0,0,0,.45);user-select:none';
+  leg.innerHTML=
+    '<div class="lhead" style="display:flex;align-items:center;justify-content:space-between;'+
+      'padding:7px 10px;cursor:move;border-bottom:1px solid '+C.line+'">'+
+      '<b style="color:'+C.text+'">Legend</b>'+
+      '<span class="lhide" style="cursor:pointer;color:'+C.dim+';padding:0 4px;font-size:14px;'+
+        'line-height:1" title="hide">&times;</span></div>'+
+    '<div style="padding:8px 10px 0">'+
+      '<div style="display:flex;flex-wrap:wrap;gap:4px">'+
+        chip('Pending',C.Pending)+chip('Ready',C.Ready)+chip('Running',C.Running)+
+        chip('Paused',C.Paused)+chip('Complete',C.Complete)+chip('Cancelled',C.Cancelled)+'</div>'+
+      row('<span style="background:'+C.badBox+';border:2px solid '+C.bad+';color:'+C.bad+
+          ';font-weight:600;padding:1px 7px;border-radius:4px;white-space:nowrap">out of order</span>',
+          'started before something it depends on finished')+
+      row('<svg width="26" height="8" style="flex:0 0 auto"><line x1="0" y1="4" x2="26" y2="4" stroke="'+
+          C.bom+'" stroke-width="2" stroke-dasharray="5 4"/></svg>',
+          'in the BOM, but no routing link')+
+      row('<svg width="30" height="15" style="flex:0 0 auto"><rect x="9" y="0" width="21" height="6" rx="1.5" fill="'+
+          C.Ready+'"/><rect x="0" y="8" width="9" height="6" rx="1.5" fill="'+C.wo+
+          '"/><rect x="9" y="8" width="21" height="6" rx="1.5" fill="'+C.Ready+'"/></svg>',
+          'pale block = in a work order (number inside)')+
+      '<div style="margin-top:8px;padding-top:7px;border-top:1px solid '+C.line+';color:'+C.dim+'">'+
+        'type a part number to pin it &middot; hover a part to trace it &middot; '+
+        '<b style="color:'+C.text+'">click a part to pin that highlight</b> &middot; '+
+        'click an operation to open Job Tracking</div>'+
+    '</div>';
+  root.appendChild(leg);   // NOT body: draw() rewrites body.innerHTML
+
+  const LPOS='iscflow:legend';
+  const placeLegend=()=>{
+    let st=null; try { st=JSON.parse(sessionStorage.getItem(LPOS)||'null'); } catch(e){}
+    if(st&&st.hidden){ leg.style.display='none'; return; }
+    leg.style.display='';
+    if(st&&typeof st.x==='number'){ leg.style.left=st.x+'px'; leg.style.top=st.y+'px';
+      leg.style.right=''; leg.style.bottom=''; }
+    else { leg.style.right='16px'; leg.style.bottom='16px'; leg.style.left=''; leg.style.top=''; }
+  };
+  const saveLegend=(o)=>{ let st={}; try { st=JSON.parse(sessionStorage.getItem(LPOS)||'{}')||{}; } catch(e){}
+    Object.assign(st,o); try { sessionStorage.setItem(LPOS,JSON.stringify(st)); } catch(e){} };
+
+  leg.querySelector('.lhide').onclick=()=>{ leg.style.display='none'; saveLegend({hidden:true}); };
+
+  leg.querySelector('.lhead').onmousedown=ev=>{
+    if(ev.target.closest('.lhide')) return;
+    ev.preventDefault(); ev.stopPropagation();          // never let the canvas pan behind it
+    const r=leg.getBoundingClientRect(), b=root.getBoundingClientRect();
+    const dx=ev.clientX-r.left, dy=ev.clientY-r.top;
+    const top0=bar.offsetHeight;            // cannot be dragged up behind the toolbar
+    const move=e=>{
+      const x=Math.max(0,Math.min(b.width -r.width ,e.clientX-b.left-dx));
+      const y=Math.max(top0,Math.min(b.height-r.height,e.clientY-b.top -dy));
+      leg.style.left=x+'px'; leg.style.top=y+'px'; leg.style.right=''; leg.style.bottom='';
+    };
+    const up=()=>{ window.removeEventListener('mousemove',move); window.removeEventListener('mouseup',up);
+      saveLegend({x:parseFloat(leg.style.left)||0, y:parseFloat(leg.style.top)||0}); };
+    window.addEventListener('mousemove',move); window.addEventListener('mouseup',up);
+  };
+
+  // the chart is dragged and panned under this panel; its own events must not reach the canvas
+  leg.onmousedown=ev=>ev.stopPropagation();
+  leg.onwheel=ev=>ev.stopPropagation();
+
+  placeLegend();
 
   (async () => {
     /* The 11 MB job fetch is the whole cost of this view, so clicking through to Job Tracking
@@ -582,6 +634,12 @@ const ISCOpenFlow = (opts) => {
     bar.querySelector('.nC').textContent='('+ops.filter(n=>n.status==='Complete').length+')';
     bar.querySelector('.nX').textContent='('+ops.filter(n=>n.status==='Cancelled').length+')';
     bar.querySelector('.gap').onchange=()=>{ wrap(); pack(); fit(); };
+    bar.querySelector('.legend').onclick=()=>{
+      const hidden=leg.style.display==='none';
+      leg.style.display = hidden ? '' : 'none';
+      saveLegend({hidden:!hidden});
+      if(hidden) placeLegend();
+    };
     bar.querySelector('.reload').onclick=()=>{
       try { sessionStorage.removeItem(CK); sessionStorage.removeItem(VK); } catch(e){}
       root.remove();
