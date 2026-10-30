@@ -35,7 +35,7 @@
   const C={ page:'#0c0d12', panel:'#191a1f', card:'#22242a', box:'#15171c', line:'#2e3138',
     text:'#e6e6f0', dim:'#8a8f9c', orange:'#F58220', bad:'#e5484d',
     Pending:'#5b6579', Ready:'#3987e5', Paused:'#b8862f', Complete:'#199e70',
-    Cancelled:'#6a3b3b', Running:'#199e70' };
+    Cancelled:'#6a3b3b', Running:'#2fd18b' };
   const GW=186, HEAD=19, OPH=25, PADB=7, COLGAP=210, SUBGAP=26, PAD=70;
 
   const root=document.createElement('div'); root.id='iscflow';
@@ -55,7 +55,7 @@
     '<span class="focus" style="color:'+C.orange+';font-weight:600"></span>'+
     '<span style="flex:1"></span>'+
     '<label style="color:'+C.dim+'"><input type="checkbox" class="hideC"> hide complete <b class="nC"></b></label>'+
-    '<label style="color:'+C.dim+'"><input type="checkbox" class="hideX"> hide cancelled <b class="nX"></b></label>'+
+    '<label style="color:'+C.dim+'"><input type="checkbox" class="hideX" checked> hide cancelled <b class="nX"></b></label>'+
     '<label style="color:'+C.dim+'">gap <input type="range" class="gap" min="4" max="90" value="22" style="vertical-align:middle;width:110px"></label>'+
     '<button class="all" style="'+btn+'">Show all</button>'+
     '<button class="tidy" style="'+btn+'">Re-order</button><button class="fit" style="'+btn+'">Fit</button>'+
@@ -84,6 +84,23 @@
     const L=0.2126*c[0]+0.7152*c[1]+0.0722*c[2];
     return INK[hex]=(1.05/(L+0.05) > (L+0.05)/0.0545) ? '#ffffff' : '#10140f';
   };
+
+  const chip=(label,fill)=>'<span style="background:'+fill+';color:'+ink(fill)+
+    ';font-weight:600;padding:2px 8px;border-radius:4px">'+label+'</span>';
+  const leg=document.createElement('div');
+  leg.style.cssText='flex:0 0 auto;display:flex;align-items:center;gap:7px;padding:6px 14px;'+
+    'background:'+C.panel+';border-bottom:1px solid '+C.line+';font-size:11px;flex-wrap:wrap';
+  leg.innerHTML='<span style="color:'+C.dim+'">operation</span>'+
+    chip('Pending',C.Pending)+chip('Ready',C.Ready)+chip('Running',C.Running)+
+    chip('Paused',C.Paused)+chip('Complete',C.Complete)+chip('Cancelled',C.Cancelled)+
+    '<span style="width:10px"></span>'+
+    '<span style="border:2px solid '+C.bad+';color:'+C.bad+';font-weight:600;padding:1px 8px;'+
+      'border-radius:4px">out of order</span>'+
+    '<span style="color:'+C.dim+'">started before something it depends on finished</span>'+
+    '<span style="flex:1"></span>'+
+    '<span style="color:'+C.dim+'">hover a part to trace it &middot; click to isolate its chain '+
+      '&middot; click an operation to open Job Tracking</span>';
+  root.insertBefore(leg, body);
 
   (async () => {
     let j;
