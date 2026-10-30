@@ -365,8 +365,11 @@ const ISCOpenFlow = () => {
               return '<rect x="'+f(bx)+'" y="'+f(oy+5)+'" width="'+f(w)+'" height="15" rx="3.5" fill="'+
                 C.orange+'"/><text x="'+f(bx+w/2)+'" y="'+f(oy+15.5)+'" text-anchor="middle" '+
                 'fill="#1a1206" font-size="9.5" font-weight="700">'+lab+'</text>'; })():'')+
-            '<title>'+esc(o.item)+'\n'+esc(o.op)+'\n'+o.status+(o.eq?'\n'+esc(o.eq):'')+
-              (o.hrs?'\n'+o.hrs+' h':'')+'\nclick to open in Job Tracking</title></g>';
+            '<title>'+esc(o.item)+'\n'+esc(o.op)+'\n'+o.status+
+              (o.wo?'\nwork order '+o.wo:'\nnot in a work order')+
+              (o.eq?'\n'+esc(o.eq):'')+(o.hrs?'\n'+o.hrs+' h':'')+
+              (o.oop?'\n\nOUT OF ORDER - started before:\n  '+o.why.map(esc).join('\n  '):'')+
+              '\nclick to open in Job Tracking</title></g>';
         });
         b+='</g>';
       }
