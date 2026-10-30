@@ -56,6 +56,7 @@
     '<span style="flex:1"></span>'+
     '<label style="color:'+C.dim+'"><input type="checkbox" class="hideC"> hide complete <b class="nC"></b></label>'+
     '<label style="color:'+C.dim+'"><input type="checkbox" class="hideX" checked> hide cancelled <b class="nX"></b></label>'+
+    '<label style="color:'+C.dim+'"><input type="checkbox" class="lock" checked> lock layout</label>'+
     '<label style="color:'+C.dim+'">gap <input type="range" class="gap" min="4" max="90" value="22" style="vertical-align:middle;width:110px"></label>'+
     '<button class="all" style="'+btn+'">Show all</button>'+
     '<button class="tidy" style="'+btn+'">Re-order</button><button class="fit" style="'+btn+'">Fit</button>'+
@@ -98,8 +99,8 @@
       ';font-weight:600;padding:1px 8px;border-radius:4px">out of order</span>'+
     '<span style="color:'+C.dim+'">started before something it depends on finished</span>'+
     '<span style="flex:1"></span>'+
-    '<span style="color:'+C.dim+'">hover a part to trace it &middot; click to isolate its chain '+
-      '&middot; click an operation to open Job Tracking</span>';
+    '<span style="color:'+C.dim+'">hover a part to trace it &middot; <b style="color:'+C.text+
+      '">click a part to pin that highlight</b> &middot; click an operation to open Job Tracking</span>';
   root.insertBefore(leg, body);
 
   (async () => {
@@ -337,7 +338,7 @@
       focus = (focus===g) ? null : g;
       hover(null);
       const s=bar.querySelector('.focus');
-      s.textContent = focus ? ('focus: '+focus.item+' ('+chain(focus).size+' parts) - click it again or Show all') : '';
+      s.textContent = focus ? ('PINNED: '+focus.item+' - '+chain(focus).size+' parts in its chain') : '';
       draw();
     }
 
@@ -348,15 +349,23 @@
         hover(gEl?gEl.dataset.i:null);
       };
       body.onmouseleave=()=>hover(null);
+      /* Locked (the default) a part cannot be dragged out of its column - dragging anywhere
+         just pans. Unlock to pull a box aside by hand.
+         SLOP exists because the old code set moved=true on the first mousemove event of any
+         size, so a 1px tremor during a click cancelled it and pinning a highlight was in
+         practice impossible. A click is a click until the pointer travels 4px. */
+      const SLOP=4, locked=()=>bar.querySelector('.lock').checked;
       body.onmousedown=ev=>{
         const gEl=ev.target.closest&&ev.target.closest('g.g');
-        if(gEl){ const g=gByItem.get(gEl.dataset.item);
-          const nEl=ev.target.closest('g.n');
-          drag={g, node:nEl?byId.get(nEl.dataset.id):null, moved:false}; }
-        else { pan={x:ev.clientX-view.x,y:ev.clientY-view.y}; body.style.cursor='grabbing'; }
+        if(gEl){ const nEl=ev.target.closest('g.n');
+          drag={ g:gByItem.get(gEl.dataset.item), node:nEl?byId.get(nEl.dataset.id):null,
+                 moved:false, x0:ev.clientX, y0:ev.clientY, move:!locked() }; }
+        if(!gEl||locked()){ pan={x:ev.clientX-view.x,y:ev.clientY-view.y}; body.style.cursor='grabbing'; }
       };
       window.addEventListener('mousemove',ev=>{
-        if(drag&&drag.g){ drag.moved=true;
+        if(drag&&!drag.moved&&
+           Math.abs(ev.clientX-drag.x0)+Math.abs(ev.clientY-drag.y0)>SLOP) drag.moved=true;
+        if(drag&&drag.move&&drag.moved){
           drag.g.x=(ev.clientX-view.x)/view.k; drag.g.y=(ev.clientY-view.y)/view.k; draw(); }
         else if(pan){ view.x=ev.clientX-pan.x; view.y=ev.clientY-pan.y; draw(); }
       });
