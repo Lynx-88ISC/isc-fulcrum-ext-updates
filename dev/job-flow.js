@@ -113,6 +113,9 @@ const ISCOpenFlow = () => {
     '<span style="border:1px solid '+C.dim+';color:'+C.text+';font-weight:700;font-size:9px;'+
       'padding:2px 7px;border-radius:4px">1219</span>'+
     '<span style="color:'+C.dim+'">work order number on the card</span>'+
+    '<span style="width:10px"></span>'+
+    '<span style="color:'+C.dim+'">zoom out and each part collapses to one block: its overall '+
+      'state and how far through it is</span>'+
     '<span style="flex:1"></span>'+
     '<span style="color:'+C.dim+'">hover a part to trace it &middot; <b style="color:'+C.text+
       '">click a part to pin that highlight</b> &middot; click an operation to open Job Tracking</span>';
@@ -341,14 +344,31 @@ const ISCOpenFlow = () => {
           'BOM level '+all[0].lvl+'  -  '+all.length+' parts'+(subs.length>1?' ('+subs.length+' columns)':'')+
           '</text>';
       });
+      const LOD = view.k>=0.62 ? 2 : (view.k>=0.40 ? 1 : 0);
       let b='';
       for(const g of groups){
         const x=g.x-GW/2, y=g.y-g.h/2;
         const nb=[g.idx].concat(g.in.map(n=>n.idx), g.out.map(n=>n.idx));
         const lit = !inFocus || inFocus.has(g);
         g.oop = oopItems.has(g.item);
-        b+='<g class="g" data-item="'+esc(g.item)+'" data-i="'+g.idx+'" data-nb="'+nb.join(' ')+
-          '" opacity="'+(lit?1:0.12)+'">'+
+        const open='<g class="g" data-item="'+esc(g.item)+'" data-i="'+g.idx+'" data-nb="'+nb.join(' ')+
+          '" opacity="'+(lit?1:0.12)+'">';
+
+        if(LOD===0){
+          const rc=roll(g), pr=done(g);
+          b+=open+
+            '<rect x="'+f(x)+'" y="'+f(y)+'" width="'+GW+'" height="'+f(g.h)+'" rx="7" fill="'+rc+
+              '" stroke="'+(g===focus?C.orange:(g.oop?C.bad:rc))+
+              '" stroke-width="'+(g===focus||g.oop?4:1.2)+'"/>'+
+            (pr>0&&pr<1 ? '<rect x="'+f(x+8)+'" y="'+f(y+g.h-9)+'" width="'+f((GW-16)*pr)+
+              '" height="4" rx="2" fill="'+ink(rc)+'" fill-opacity="0.55"/>' : '')+
+            '<title>'+esc(g.item)+'\n'+g.ops.length+' operations, '+Math.round(pr*100)+'% complete'+
+              (g.oop?'\nOUT OF ORDER':'')+'</title>'+
+            '</g>';
+          continue;
+        }
+
+        b+=open+
           '<rect x="'+f(x)+'" y="'+f(y)+'" width="'+GW+'" height="'+f(g.h)+'" rx="7" fill="'+(g.oop?C.badBox:C.box)+
             '" stroke="'+(g===focus?C.orange:(g.oop?C.bad:C.line))+
             '" stroke-width="'+(g===focus||g.oop?2:1.2)+'"/>'+
@@ -359,12 +379,12 @@ const ISCOpenFlow = () => {
           b+='<g class="n" data-id="'+o.id+'"'+(o.wo?' data-wo="'+o.wo+'"':'')+'>'+
             '<rect x="'+f(x+5)+'" y="'+f(oy+2)+'" width="'+(GW-10)+'" height="'+(OPH-4)+'" rx="4" fill="'+
               col+'" stroke="'+(o.oop?C.bad:col)+'" stroke-width="'+(o.oop?2:1.3)+'"/>'+
-            '<text x="'+f(x+10)+'" y="'+f(oy+15)+'" fill="'+ink(col)+'" font-size="10" font-weight="600">'+
-              esc(o.op).slice(0,o.wo?15:20)+(o.hrs?'  '+o.hrs+'h':'')+'</text>'+
+            (LOD===2 ? '<text x="'+f(x+10)+'" y="'+f(oy+15)+'" fill="'+ink(col)+'" font-size="10" font-weight="600">'+
+              esc(o.op).slice(0,o.wo?15:20)+(o.hrs?'  '+o.hrs+'h':'')+'</text>' : '')+
             /* Outlined, in the card's own ink colour - a filled badge competed with the status
                fill it sits on (orange vs the Paused amber especially) and outranked the signal
                it was meant to annotate. Ink adapts per status, so it cannot clash. */
-            (o.wo?(()=>{ const lab=String(o.wo), w=lab.length*6+10, bx=x+GW-9-w;
+            (LOD===2&&o.wo?(()=>{ const lab=String(o.wo), w=lab.length*6+10, bx=x+GW-9-w;
               return '<rect x="'+f(bx)+'" y="'+f(oy+5)+'" width="'+f(w)+'" height="15" rx="3.5" '+
                 'fill="none" stroke="'+ink(col)+'" stroke-opacity="0.5" stroke-width="1"/>'+
                 '<text x="'+f(bx+w/2)+'" y="'+f(oy+15.5)+'" text-anchor="middle" fill="'+ink(col)+
@@ -404,6 +424,23 @@ const ISCOpenFlow = () => {
         ? '#iscflow .vp g.n[data-wo]{opacity:.12}'
         : '#iscflow .vp g.n:not([data-wo="'+v+'"]){opacity:.12}';
     }
+
+    /* Level of detail. Zoomed out, 10px type renders at 3px and 176px cards become mush - the
+       chart stops saying anything. So below a threshold it draws something DIFFERENT rather than
+       smaller: each part collapses to one block carrying its rolled-up state plus a progress bar.
+       At bird's-eye the question is "which parts are done, which are in trouble", not "what is
+       operation 4 called". Geometry is unchanged at every level, so nothing jumps when zooming. */
+    const roll=g=>{
+      if(g.oop) return C.bad;
+      const st=g.ops.map(o=>o.status);
+      if(st.every(x=>x==='Complete'||x==='Cancelled')) return C.Complete;
+      if(st.some(x=>x==='Running')) return C.Running;
+      if(st.some(x=>x==='Complete'||x==='Paused')) return C.Paused;
+      if(st.some(x=>x==='Ready')) return C.Ready;
+      return C.Pending;
+    };
+    const done=g=>{ const n=g.ops.filter(o=>o.status==='Complete'||o.status==='Cancelled').length;
+      return g.ops.length?n/g.ops.length:0; };
 
     function hover(i){
       if(!hoverCss){ hoverCss=document.createElement('style'); root.appendChild(hoverCss); }
