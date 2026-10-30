@@ -31,7 +31,7 @@
     text:'#e6e6f0', dim:'#8a8f9c', orange:'#F58220',
     Pending:'#5b6579', Ready:'#3987e5', Paused:'#b8862f', Complete:'#199e70',
     Cancelled:'#6a3b3b', Running:'#199e70' };
-  const GW=186, HEAD=19, OPH=25, PADB=7, COLGAP=150, ROWGAP=22, PAD=70;
+  const GW=186, HEAD=19, OPH=25, PADB=7, COLGAP=210, SUBGAP=26, PAD=70;
 
   const root=document.createElement('div'); root.id='iscflow';
   root.style.cssText='position:fixed;inset:0;z-index:2147483600;background:'+C.page+';color:'+C.text+
@@ -45,9 +45,12 @@
     'background:'+C.panel+';border-bottom:1px solid '+C.line+';flex-wrap:wrap;font-size:12px';
   bar.innerHTML='<span style="background:'+C.orange+';color:#1a1206;font-weight:700;font-size:11px;'+
     'padding:3px 7px;border-radius:5px">ISC</span><strong>Job Flow</strong>'+
-    '<span class="sub" style="color:'+C.dim+'"></span><span style="flex:1"></span>'+
+    '<span class="sub" style="color:'+C.dim+'"></span>'+
+    '<span class="focus" style="color:'+C.orange+';font-weight:600"></span>'+
+    '<span style="flex:1"></span>'+
     '<label style="color:'+C.dim+'"><input type="checkbox" class="hideDone"> hide complete/cancelled</label>'+
     '<label style="color:'+C.dim+'">gap <input type="range" class="gap" min="4" max="90" value="22" style="vertical-align:middle;width:110px"></label>'+
+    '<button class="all" style="'+btn+'">Show all</button>'+
     '<button class="tidy" style="'+btn+'">Re-order</button><button class="fit" style="'+btn+'">Fit</button>'+
     '<button class="x" style="'+btn+'">Close</button>';
   root.appendChild(bar);
@@ -82,7 +85,19 @@
     ops.forEach(n=>byId.set(n.id,n));
     ops.forEach(n=>{ n.prev=n.prev.filter(p=>byId.has(p)); });
 
-    let cols=[], groups=[], gByItem=new Map(), links=[], svg=null, view={x:0,y:0,k:1};
+    let cols=[], bands=[], groups=[], gByItem=new Map(), links=[], svg=null, view={x:0,y:0,k:1};
+    let focus=null, hoverCss=null;
+
+    /* Focus: the whole upstream + downstream chain of one part. With 257 cross-part links
+       through one gutter, no amount of spacing makes the bundle readable - you have to be able
+       to ask "what feeds THIS". Hover is the cheap version (direct neighbours, CSS only, no
+       redraw); click is the sticky version and redraws. */
+    function chain(g){
+      const seen=new Set([g]);
+      const walk=(n,dir)=>{ for(const m of n[dir]) if(!seen.has(m)){ seen.add(m); walk(m,dir); } };
+      walk(g,'in'); walk(g,'out');
+      return seen;
+    }
     const GAP=()=>+bar.querySelector('.gap').value;
 
     function build(){
@@ -90,6 +105,7 @@
       const live=ops.filter(n=>!hide||!/Complete|Cancelled/.test(n.status));
       const ok=new Set(live.map(n=>n.id));
 
+      focus=null; if(bar.querySelector('.focus')) bar.querySelector('.focus').textContent='';
       gByItem=new Map();
       for(const n of live){
         let g=gByItem.get(n.item);
@@ -122,34 +138,63 @@
         live.length+' operations, '+links.length+' cross-part links, '+cols.length+' BOM levels';
     }
 
+    /* Layout: columns by BOM level, but a level with 83 parts would be a 6000px wall against
+       columns of 16, 4 and 1 - so any over-tall level WRAPS into sub-columns and stays one band.
+       Vertical position is then the MEDIAN y of whatever a box connects to, packed to avoid
+       overlap and repeated both directions. Median beats mean here: one far-away neighbour
+       should not drag a box halfway up the canvas. That is what shortens the routes. */
+    const LIMIT=2300;
+
     function tidy(){
-      // seed each column, then sweep barycentres both ways to settle crossings out
+      // seed order, then sweep medians both ways
       cols.forEach(col=>col.sort((a,b)=> a.item<b.item?-1:a.item>b.item?1:0));
-      place();
-      for(let pass=0; pass<14; pass++){
+      wrap(); pack();
+      for(let pass=0; pass<26; pass++){
         const l2r = pass%2===0;
-        const order = l2r ? cols.map((c,i)=>i) : cols.map((c,i)=>i).reverse();
-        for(const ci of order){
-          const col=cols[ci]; if(!col||col.length<2) continue;
-          col.forEach(g=>{
-            const nb = l2r ? g.in : g.out;
-            const ys = nb.map(n=>n.y).filter(v=>typeof v==='number');
-            g.b = ys.length ? ys.reduce((s,v)=>s+v,0)/ys.length : g.y;
-          });
-          col.sort((a,b)=>a.b-b.b);
-          place();
+        const order = l2r ? bands.map((b,i)=>i) : bands.map((b,i)=>i).reverse();
+        for(const bi of order){
+          for(const sub of bands[bi]){
+            if(sub.length<2) continue;
+            sub.forEach(g=>{
+              const nb = l2r ? g.in : g.out;
+              const ys = nb.map(n=>n.y).filter(v=>typeof v==='number').sort((a,b)=>a-b);
+              g.want = ys.length ? (ys.length%2 ? ys[(ys.length-1)/2]
+                                   : (ys[ys.length/2-1]+ys[ys.length/2])/2) : g.y;
+            });
+            sub.sort((a,b)=>a.want-b.want);
+          }
+          pack();
         }
       }
-      place();
+      pack();
     }
 
-    function place(){
+    function wrap(){
       const gap=GAP();
+      bands=[];
       cols.forEach((col,ci)=>{
-        let y=0;
-        col.forEach(g=>{ g.x=PAD+ci*(GW+COLGAP); g.y=y+g.h/2; y+=g.h+gap; });
-        const tot=y-gap;
-        col.forEach(g=>g.y-=tot/2);                 // centre each column vertically
+        const nat=col.reduce((s,g)=>s+g.h+gap,0);
+        const n=Math.max(1,Math.ceil(nat/LIMIT));
+        const per=Math.ceil(col.length/n);
+        const subs=[];
+        for(let i=0;i<n;i++) subs.push(col.slice(i*per,(i+1)*per));
+        bands[ci]=subs.filter(s=>s.length);
+      });
+    }
+
+    function pack(){
+      const gap=GAP();
+      let x=PAD;
+      bands.forEach((subs,bi)=>{
+        subs.forEach(sub=>{
+          let y=0;
+          sub.forEach(g=>{ g.x=x+GW/2; g.y=y+g.h/2; y+=g.h+gap; });
+          const tot=y-gap;
+          sub.forEach(g=>g.y-=tot/2);
+          x+=GW+SUBGAP;
+        });
+        x+=COLGAP-SUBGAP;
+        bands[bi].x0 = x;
       });
     }
 
@@ -159,27 +204,39 @@
     function draw(){
       if(!svg){ body.innerHTML='<svg style="width:100%;height:100%;display:block"><g class="vp"></g></svg>';
         svg=body.querySelector('svg'); wire(); }
+      groups.forEach((g,i)=>g.idx=i);
+      const inFocus = focus ? chain(focus) : null;
       let e='';
       for(const l of links){
         const A=opPos(l.a), B=opPos(l.b);
         const x1=A.right, y1=A.y, x2=B.left, y2=B.y, mx=(x1+x2)/2;
-        e+='<path d="M'+f(x1)+' '+f(y1)+' C'+f(mx)+' '+f(y1)+' '+f(mx)+' '+f(y2)+' '+f(x2)+' '+f(y2)+
-           '" fill="none" stroke="#3f4756" stroke-width="1.2"/>';
+        const ga=l.a.g, gb=l.b.g;
+        const on = !inFocus || (inFocus.has(ga)&&inFocus.has(gb));
+        const hot = inFocus && (ga===focus||gb===focus);
+        e+='<path data-a="'+ga.idx+'" data-b="'+gb.idx+'" d="M'+f(x1)+' '+f(y1)+' C'+f(mx)+' '+f(y1)+
+           ' '+f(mx)+' '+f(y2)+' '+f(x2)+' '+f(y2)+'" fill="none" stroke="'+
+           (on?(hot?C.orange:'#6f7d9c'):'#49536a')+'" stroke-width="'+(on?(hot?2:1.3):1)+
+           '" stroke-opacity="'+(on?(hot?1:0.7):0.05)+'"/>';
       }
       let head='';
-      cols.forEach((col,ci)=>{
-        if(!col.length) return;
-        const x=PAD+ci*(GW+COLGAP)-GW/2;
-        const top=Math.min(...col.map(g=>g.y-g.h/2));
-        head+='<text x="'+f(x)+'" y="'+f(top-24)+'" fill="'+C.dim+'" font-size="12" font-weight="700">'+
-          'BOM level '+col[0].lvl+'  -  '+col.length+' parts</text>';
+      bands.forEach((subs,bi)=>{
+        if(!subs.length||!subs[0].length) return;
+        const all=subs.flat();
+        const x=Math.min(...all.map(g=>g.x-GW/2));
+        const top=Math.min(...all.map(g=>g.y-g.h/2));
+        head+='<text x="'+f(x)+'" y="'+f(top-26)+'" fill="'+C.dim+'" font-size="12" font-weight="700">'+
+          'BOM level '+all[0].lvl+'  -  '+all.length+' parts'+(subs.length>1?' ('+subs.length+' columns)':'')+
+          '</text>';
       });
       let b='';
       for(const g of groups){
         const x=g.x-GW/2, y=g.y-g.h/2;
-        b+='<g class="g" data-item="'+esc(g.item)+'">'+
+        const nb=[g.idx].concat(g.in.map(n=>n.idx), g.out.map(n=>n.idx));
+        const lit = !inFocus || inFocus.has(g);
+        b+='<g class="g" data-item="'+esc(g.item)+'" data-i="'+g.idx+'" data-nb="'+nb.join(' ')+
+          '" opacity="'+(lit?1:0.12)+'">'+
           '<rect x="'+f(x)+'" y="'+f(y)+'" width="'+GW+'" height="'+f(g.h)+'" rx="7" fill="'+C.box+
-            '" stroke="'+C.line+'" stroke-width="1.2"/>'+
+            '" stroke="'+(g===focus?C.orange:C.line)+'" stroke-width="'+(g===focus?2:1.2)+'"/>'+
           '<text x="'+f(x+9)+'" y="'+f(y+13.5)+'" fill="'+C.text+'" font-size="10.5" font-weight="700">'+
             esc(g.item).slice(0,27)+'</text>';
         g.ops.forEach((o,i)=>{
@@ -211,8 +268,31 @@
       draw();
     }
 
+    function hover(i){
+      if(!hoverCss){ hoverCss=document.createElement('style'); root.appendChild(hoverCss); }
+      if(i==null||focus){ hoverCss.textContent=''; return; }
+      hoverCss.textContent=
+        '#iscflow .vp g.g:not([data-nb~="'+i+'"]){opacity:.13}'+
+        '#iscflow .vp path:not([data-a="'+i+'"]):not([data-b="'+i+'"]){stroke-opacity:.04}'+
+        '#iscflow .vp path[data-a="'+i+'"],#iscflow .vp path[data-b="'+i+'"]'+
+          '{stroke:'+C.orange+';stroke-width:2;stroke-opacity:1}';
+    }
+
+    function setFocus(g){
+      focus = (focus===g) ? null : g;
+      hover(null);
+      const s=bar.querySelector('.focus');
+      s.textContent = focus ? ('focus: '+focus.item+' ('+chain(focus).size+' parts) - click it again or Show all') : '';
+      draw();
+    }
+
     function wire(){
       let pan=null, drag=null;
+      body.onmouseover=ev=>{
+        const gEl=ev.target.closest&&ev.target.closest('g.g');
+        hover(gEl?gEl.dataset.i:null);
+      };
+      body.onmouseleave=()=>hover(null);
       body.onmousedown=ev=>{
         const gEl=ev.target.closest&&ev.target.closest('g.g');
         if(gEl){ const g=gByItem.get(gEl.dataset.item);
@@ -227,9 +307,11 @@
       });
       window.addEventListener('mouseup',()=>{
         if(drag){
-          if(!drag.moved&&drag.node){
-            window.open('/jobtracking/#/operation?type=Job&jobId='+jobId+'&selectedOperationId='+
-              drag.node.id+'&selectedItemToMakeId='+drag.node.itemToMakeId,'_blank');
+          if(!drag.moved){
+            if(drag.node){
+              window.open('/jobtracking/#/operation?type=Job&jobId='+jobId+'&selectedOperationId='+
+                drag.node.id+'&selectedItemToMakeId='+drag.node.itemToMakeId,'_blank');
+            } else setFocus(drag.g);   // part header click isolates its chain
           }
           drag=null;
         }
@@ -244,7 +326,8 @@
     }
 
     bar.querySelector('.hideDone').onchange=()=>{ build(); fit(); };
-    bar.querySelector('.gap').onchange=()=>{ place(); fit(); };
+    bar.querySelector('.gap').onchange=()=>{ wrap(); pack(); fit(); };
+    bar.querySelector('.all').onclick=()=>{ if(focus) setFocus(focus); };
     bar.querySelector('.tidy').onclick=()=>{ tidy(); draw(); };
     bar.querySelector('.fit').onclick=fit;
 
