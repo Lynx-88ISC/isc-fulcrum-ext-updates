@@ -110,12 +110,7 @@ const ISCOpenFlow = () => {
       '" stroke-width="2" stroke-dasharray="5 4"/></svg>'+
     '<span style="color:'+C.dim+'">in the BOM, but no routing link</span>'+
     '<span style="width:10px"></span>'+
-    '<span style="border:1px solid '+C.dim+';color:'+C.text+';font-weight:700;font-size:9px;'+
-      'padding:2px 7px;border-radius:4px">1219</span>'+
-    '<span style="color:'+C.dim+'">work order number on the card</span>'+
-    '<span style="width:10px"></span>'+
-    '<span style="color:'+C.dim+'">zoomed out, each part is one block: its state, its progress, '+
-      'and its work order in large type</span>'+
+    '<span style="color:'+C.dim+'">work order</span><span class="woLegend"></span>'+
     '<span style="flex:1"></span>'+
     '<span style="color:'+C.dim+'">hover a part to trace it &middot; <b style="color:'+C.text+
       '">click a part to pin that highlight</b> &middot; click an operation to open Job Tracking</span>';
@@ -144,6 +139,16 @@ const ISCOpenFlow = () => {
           wo:(o.workOrderOperationReference||{}).workOrderNumber||null });
       }
     }
+    /* A colour per work order, APPENDED to the card rather than competing with the status fill.
+       Hues chosen to sit outside the status palette (grey/blue/green/amber/dark red) and outside
+       the colours already spoken for: ISC orange, the out-of-order red, the BOM-link violet. */
+    const WOPAL=['#e05fa8','#4fd1d9','#b388ff','#9ccc3b','#ffd166',
+                 '#ff7ab6','#7ad1ff','#d4a373','#a0e8af','#f4845f'];
+    const woHue=new Map();
+    [...new Set(ops.map(o=>o.wo).filter(Boolean))].sort((a,b)=>a-b)
+      .forEach((w,i)=>woHue.set(w,WOPAL[i%WOPAL.length]));
+    const woColor=w=>woHue.get(w)||C.dim;
+
     ops.forEach(n=>byId.set(n.id,n));
     ops.forEach(n=>{ n.prev=n.prev.filter(p=>byId.has(p)); });
 
@@ -344,7 +349,6 @@ const ISCOpenFlow = () => {
           'BOM level '+all[0].lvl+'  -  '+all.length+' parts'+(subs.length>1?' ('+subs.length+' columns)':'')+
           '</text>';
       });
-      const LOD = view.k>=0.62 ? 2 : (view.k>=0.40 ? 1 : 0);
       let b='';
       for(const g of groups){
         const x=g.x-GW/2, y=g.y-g.h/2;
@@ -353,33 +357,6 @@ const ISCOpenFlow = () => {
         g.oop = oopItems.has(g.item);
         const open='<g class="g" data-item="'+esc(g.item)+'" data-i="'+g.idx+'" data-nb="'+nb.join(' ')+
           '" opacity="'+(lit?1:0.12)+'">';
-
-        if(LOD===0){
-          const rc=roll(g), pr=done(g);
-          b+=open+
-            '<rect x="'+f(x)+'" y="'+f(y)+'" width="'+GW+'" height="'+f(g.h)+'" rx="7" fill="'+rc+
-              '" stroke="'+(g===focus?C.orange:(g.oop?C.bad:rc))+
-              '" stroke-width="'+(g===focus||g.oop?4:1.2)+'"/>'+
-            (pr>0&&pr<1 ? '<rect x="'+f(x+8)+'" y="'+f(y+g.h-9)+'" width="'+f((GW-16)*pr)+
-              '" height="4" rx="2" fill="'+ink(rc)+'" fill-opacity="0.55"/>' : '')+
-            /* A collapsed block has room for ONE big label where six 10px rows had none, so the
-               work order survives bird's-eye at a size that actually reads. This is the whole
-               point of the roll-up - summarise, do not just shrink. */
-            (()=>{ const w=[...new Set(g.ops.map(o=>o.wo).filter(Boolean))];
-              if(!w.length) return '';
-              const lab = w.length===1 ? String(w[0])
-                        : w.slice(0,2).join(' ')+(w.length>2?' +'+(w.length-2):'');
-              const fs = Math.max(13, Math.min(46, (GW-26)/(lab.length*0.60)));
-              return '<text x="'+f(x+GW/2)+'" y="'+f(y+g.h/2+fs*0.34)+'" text-anchor="middle" fill="'+
-                ink(rc)+'" fill-opacity="0.9" font-size="'+f(fs)+'" font-weight="800">'+lab+'</text>';
-            })()+
-            '<title>'+esc(g.item)+'\n'+g.ops.length+' operations, '+Math.round(pr*100)+'% complete'+
-              (()=>{ const w=[...new Set(g.ops.map(o=>o.wo).filter(Boolean))];
-                return w.length?'\nwork orders: '+w.join(', '):'\nno work order'; })()+
-              (g.oop?'\nOUT OF ORDER':'')+'</title>'+
-            '</g>';
-          continue;
-        }
 
         b+=open+
           '<rect x="'+f(x)+'" y="'+f(y)+'" width="'+GW+'" height="'+f(g.h)+'" rx="7" fill="'+(g.oop?C.badBox:C.box)+
@@ -392,16 +369,14 @@ const ISCOpenFlow = () => {
           b+='<g class="n" data-id="'+o.id+'"'+(o.wo?' data-wo="'+o.wo+'"':'')+'>'+
             '<rect x="'+f(x+5)+'" y="'+f(oy+2)+'" width="'+(GW-10)+'" height="'+(OPH-4)+'" rx="4" fill="'+
               col+'" stroke="'+(o.oop?C.bad:col)+'" stroke-width="'+(o.oop?2:1.3)+'"/>'+
-            (LOD===2 ? '<text x="'+f(x+10)+'" y="'+f(oy+15)+'" fill="'+ink(col)+'" font-size="10" font-weight="600">'+
-              esc(o.op).slice(0,o.wo?15:20)+(o.hrs?'  '+o.hrs+'h':'')+'</text>' : '')+
-            /* Outlined, in the card's own ink colour - a filled badge competed with the status
-               fill it sits on (orange vs the Paused amber especially) and outranked the signal
-               it was meant to annotate. Ink adapts per status, so it cannot clash. */
-            (o.wo?(()=>{ const lab=String(o.wo), w=lab.length*6+10, bx=x+GW-9-w;
-              return '<rect x="'+f(bx)+'" y="'+f(oy+5)+'" width="'+f(w)+'" height="15" rx="3.5" '+
-                'fill="none" stroke="'+ink(col)+'" stroke-opacity="0.5" stroke-width="1"/>'+
-                '<text x="'+f(bx+w/2)+'" y="'+f(oy+15.5)+'" text-anchor="middle" fill="'+ink(col)+
-                '" fill-opacity="0.92" font-size="9.5" font-weight="700">'+lab+'</text>'; })():'')+
+            '<text x="'+f(x+10)+'" y="'+f(oy+15)+'" fill="'+ink(col)+'" font-size="10" font-weight="600">'+
+              esc(o.op).slice(0,o.wo?15:20)+(o.hrs?'  '+o.hrs+'h':'')+'</text>'+
+            (o.wo?(()=>{ const lab=String(o.wo), wc=woColor(o.wo),
+                w=lab.length*6+10, bx=x+GW-7-w;
+              return '<rect x="'+f(bx)+'" y="'+f(oy+4)+'" width="'+f(w)+'" height="'+(OPH-8)+
+                '" rx="3" fill="'+wc+'"/>'+
+                '<text x="'+f(bx+w/2)+'" y="'+f(oy+15.5)+'" text-anchor="middle" fill="'+ink(wc)+
+                '" font-size="9.5" font-weight="700">'+lab+'</text>'; })():'')+
             '<title>'+esc(o.item)+'\n'+esc(o.op)+'\n'+o.status+
               (o.wo?'\nwork order '+o.wo:'\nnot in a work order')+
               (o.eq?'\n'+esc(o.eq):'')+(o.hrs?'\n'+o.hrs+' h':'')+
@@ -437,23 +412,6 @@ const ISCOpenFlow = () => {
         ? '#iscflow .vp g.n[data-wo]{opacity:.12}'
         : '#iscflow .vp g.n:not([data-wo="'+v+'"]){opacity:.12}';
     }
-
-    /* Level of detail. Zoomed out, 10px type renders at 3px and 176px cards become mush - the
-       chart stops saying anything. So below a threshold it draws something DIFFERENT rather than
-       smaller: each part collapses to one block carrying its rolled-up state plus a progress bar.
-       At bird's-eye the question is "which parts are done, which are in trouble", not "what is
-       operation 4 called". Geometry is unchanged at every level, so nothing jumps when zooming. */
-    const roll=g=>{
-      if(g.oop) return C.bad;
-      const st=g.ops.map(o=>o.status);
-      if(st.every(x=>x==='Complete'||x==='Cancelled')) return C.Complete;
-      if(st.some(x=>x==='Running')) return C.Running;
-      if(st.some(x=>x==='Complete'||x==='Paused')) return C.Paused;
-      if(st.some(x=>x==='Ready')) return C.Ready;
-      return C.Pending;
-    };
-    const done=g=>{ const n=g.ops.filter(o=>o.status==='Complete'||o.status==='Cancelled').length;
-      return g.ops.length?n/g.ops.length:0; };
 
     function hover(i){
       if(!hoverCss){ hoverCss=document.createElement('style'); root.appendChild(hoverCss); }
@@ -530,6 +488,10 @@ const ISCOpenFlow = () => {
         '<option value="none">not in a WO ('+ops.filter(o=>!o.wo).length+')</option>'+
         nums.map(w=>'<option value="'+w+'">'+w+' ('+n[w]+' ops)</option>').join('');
       sel.onchange=()=>woFilter(sel.value);
+      bar.querySelector('.woLegend').innerHTML = nums.map(w=>
+        '<span style="background:'+woColor(+w)+';color:'+ink(woColor(+w))+';font-weight:700;'+
+        'font-size:9px;padding:2px 6px;border-radius:3px;margin-left:4px">'+w+'</span>').join('')+
+        '<span style="color:'+C.dim+';margin-left:8px">no chip = not in a work order</span>';
       bar.querySelector('.woCount').textContent = nums.length
         ? (ops.filter(o=>o.wo).length+' ops in '+nums.length+' work orders') : '';
     })();
