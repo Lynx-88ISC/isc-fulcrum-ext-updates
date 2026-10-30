@@ -33,7 +33,7 @@
  * `order` on an operation is a SPARSE sort key: a gap is not a completed step. Edges are the only
  * real sequence. Read-only: one GET, no writes.
  */
-const ISCOpenFlow = () => {
+const ISCOpenFlow = (opts) => {
   const OLD=document.getElementById('iscflow'); if(OLD) OLD.remove();
 
   const C={ page:'#0c0d12', panel:'#191a1f', card:'#22242a', box:'#15171c', line:'#2e3138',
@@ -67,6 +67,7 @@ const ISCOpenFlow = () => {
     '<label style="color:'+C.dim+'">WO <select class="wo" style="'+btn+'padding:4px 6px"></select></label>'+
     '<label style="color:'+C.dim+'"><input type="checkbox" class="lock" checked> lock layout</label>'+
     '<label style="color:'+C.dim+'">gap <input type="range" class="gap" min="4" max="90" value="22" style="vertical-align:middle;width:110px"></label>'+
+    '<button class="reload" style="'+btn+'">Refresh</button>'+
     '<button class="all" style="'+btn+'">Show all</button>'+
     '<button class="tidy" style="'+btn+'">Re-order</button><button class="fit" style="'+btn+'">Fit</button>'+
     '<button class="x" style="'+btn+'">Close</button>';
@@ -129,10 +130,18 @@ const ISCOpenFlow = () => {
        must not mean paying it again. Cache the DERIVED model - a couple of hundred KB, not 11 MB,
        which is what lets it fit in sessionStorage - and mark the overlay as open so returning to
        the job page restores the chart, pan and zoom automatically. */
-    const CK='iscflow:'+jobId, VK='iscflow:view:'+jobId, TTL=30*60*1000;
+    const CK='iscflow:'+jobId, VK='iscflow:view:'+jobId, TTL=10*60*1000;
+
+    /* The cache exists for ONE job: surviving the click through to Job Tracking and back. So it
+       is only read when restoring. Pressing OP CHART is a deliberate act - it always refetches,
+       or deleting a work order leaves the chart showing it until the TTL expires, which is
+       exactly the surprise this caused. */
+    const restoring = !!(opts && opts.restore);
     let cached=null;
-    try { const raw=sessionStorage.getItem(CK);
-      if(raw){ const c=JSON.parse(raw); if(Date.now()-c.t<TTL) cached=c; } } catch(e){}
+    if(restoring){
+      try { const raw=sessionStorage.getItem(CK);
+        if(raw){ const c=JSON.parse(raw); if(Date.now()-c.t<TTL) cached=c; } } catch(e){}
+    }
 
     let j;
     if(!cached){
@@ -573,6 +582,11 @@ const ISCOpenFlow = () => {
     bar.querySelector('.nC').textContent='('+ops.filter(n=>n.status==='Complete').length+')';
     bar.querySelector('.nX').textContent='('+ops.filter(n=>n.status==='Cancelled').length+')';
     bar.querySelector('.gap').onchange=()=>{ wrap(); pack(); fit(); };
+    bar.querySelector('.reload').onclick=()=>{
+      try { sessionStorage.removeItem(CK); sessionStorage.removeItem(VK); } catch(e){}
+      root.remove();
+      window.__iscOpenFlow();          // no restore flag - straight back to Fulcrum
+    };
     bar.querySelector('.all').onclick=()=>{ pinTo(null); bar.querySelector('.find').value=''; };
     (()=>{
       const box=bar.querySelector('.find'); let t=null;
@@ -647,7 +661,7 @@ const ISCOpenFlow = () => {
     if(!document.getElementById('iscflow')){
       let want=null; try { want=sessionStorage.getItem('iscflow:open'); } catch(e){}
       const here=(location.pathname.match(/\/ui\/jobs\/([0-9a-f]{24})/)||[])[1];
-      if(want&&here&&want===here) window.__iscOpenFlow();
+      if(want&&here&&want===here) window.__iscOpenFlow({restore:true});
     }
   },700);
 })();
