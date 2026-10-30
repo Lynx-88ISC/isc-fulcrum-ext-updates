@@ -40,7 +40,7 @@ const ISCOpenFlow = () => {
     text:'#e6e6f0', dim:'#8a8f9c', orange:'#F58220', bad:'#e5484d', badBox:'#2e1317', bom:'#8f7ae6', wo:'#4fd1d9',
     Pending:'#5b6579', Ready:'#3987e5', Paused:'#b8862f', Complete:'#199e70',
     Cancelled:'#6a3b3b', Running:'#2fd18b' };
-  const GW=186, HEAD=19, OPH=32, CARDH=19, TAB=11, PADB=7, COLGAP=210, SUBGAP=26, PAD=70;
+  const GW=186, HEAD=19, OPH=25, CARDH=21, GUT=54, PADB=7, COLGAP=210, SUBGAP=26, PAD=70;
 
   const root=document.createElement('div'); root.id='iscflow';
   root.style.cssText='position:fixed;inset:0;z-index:2147483600;background:'+C.page+';color:'+C.text+
@@ -110,9 +110,10 @@ const ISCOpenFlow = () => {
       '" stroke-width="2" stroke-dasharray="5 4"/></svg>'+
     '<span style="color:'+C.dim+'">in the BOM, but no routing link</span>'+
     '<span style="width:10px"></span>'+
-    '<svg width="24" height="15"><rect x="0" y="0" width="24" height="6" rx="1.5" fill="'+C.Ready+
-      '"/><rect x="9" y="7" width="15" height="7" rx="2" fill="'+C.orange+'"/></svg>'+
-    '<span style="color:'+C.dim+'">orange tab = in a work order (number inside)</span>'+
+    '<svg width="30" height="15"><rect x="9" y="0" width="21" height="6" rx="1.5" fill="'+C.Ready+
+      '"/><rect x="0" y="8" width="9" height="6" rx="1.5" fill="'+C.orange+
+      '"/><rect x="9" y="8" width="21" height="6" rx="1.5" fill="'+C.Ready+'"/></svg>'+
+    '<span style="color:'+C.dim+'">orange block = in a work order (number inside)</span>'+
     '<span style="flex:1"></span>'+
     '<span style="color:'+C.dim+'">hover a part to trace it &middot; <b style="color:'+C.text+
       '">click a part to pin that highlight</b> &middot; click an operation to open Job Tracking</span>';
@@ -359,19 +360,24 @@ const ISCOpenFlow = () => {
         g.ops.forEach((o,i)=>{
           const oy=y+HEAD+i*OPH, col=C[o.status]||C.Pending;
           b+='<g class="n" data-id="'+o.id+'"'+(o.wo?' data-wo="'+o.wo+'"':'')+'>'+
-            '<rect x="'+f(x+5)+'" y="'+f(oy+2)+'" width="'+(GW-10)+'" height="'+CARDH+'" rx="4" fill="'+
-              col+'" stroke="'+(o.oop?C.bad:col)+'" stroke-width="'+(o.oop?2:1.3)+'"/>'+
-            '<text x="'+f(x+10)+'" y="'+f(oy+15)+'" fill="'+ink(col)+'" font-size="10" font-weight="600">'+
-              esc(o.op).slice(0,20)+(o.hrs?'  '+o.hrs+'h':'')+'</text>'+
+            /* The left GUT units of every row are the work-order gutter: filled orange when the
+               operation is in one, left empty when it is not. Same row, same height - so the
+               orange forms a readable column down the chart instead of adding a second band. */
+            (o.wo?'<rect x="'+f(x+5)+'" y="'+f(oy+2)+'" width="'+GUT+'" height="'+CARDH+
+              '" rx="4" fill="'+C.orange+'" stroke="'+(o.oop?C.bad:C.orange)+
+              '" stroke-width="'+(o.oop?2:1.3)+'"/>'+
+              '<text x="'+f(x+5+GUT/2)+'" y="'+f(oy+15)+'" text-anchor="middle" fill="#1a1206" '+
+              'font-size="9.5" font-weight="800">'+o.wo+'</text>' : '')+
+            '<rect x="'+f(x+5+GUT)+'" y="'+f(oy+2)+'" width="'+(GW-10-GUT)+'" height="'+CARDH+
+              '" rx="4" fill="'+col+'" stroke="'+(o.oop?C.bad:col)+
+              '" stroke-width="'+(o.oop?2:1.3)+'"/>'+
+            '<text x="'+f(x+10+GUT)+'" y="'+f(oy+15)+'" fill="'+ink(col)+'" font-size="10" font-weight="600">'+
+              esc(o.op).slice(0,14)+(o.hrs?'  '+o.hrs+'h':'')+'</text>'+
             /* One colour, not nine. Being in a work order is a yes/no fact, so it reads as a
                tab appended under the card - ISC orange, filled solid - and WHICH work order is
                the number inside it. Nine hues made the viewer decode a key to answer a binary
                question. An op with no tab is not in a work order. */
-            (o.wo?(()=>{ const lab='WO '+o.wo, tw=(GW-10)*0.6, bx=x+5+(GW-10)-tw;
-              return '<rect x="'+f(bx)+'" y="'+f(oy+2+CARDH)+'" width="'+f(tw)+'" height="'+TAB+
-                '" rx="2.5" fill="'+C.orange+'"/>'+
-                '<text x="'+f(bx+tw/2)+'" y="'+f(oy+2+CARDH+TAB-3)+'" text-anchor="middle" '+
-                'fill="#1a1206" font-size="8.5" font-weight="800">'+lab+'</text>'; })():'')+
+
             '<title>'+esc(o.item)+'\n'+esc(o.op)+'\n'+o.status+
               (o.wo?'\nwork order '+o.wo:'\nnot in a work order')+
               (o.eq?'\n'+esc(o.eq):'')+(o.hrs?'\n'+o.hrs+' h':'')+
