@@ -62,6 +62,8 @@ const ISCOpenFlow = () => {
     '<span style="flex:1"></span>'+
     '<label style="color:'+C.dim+'"><input type="checkbox" class="hideC"> hide complete <b class="nC"></b></label>'+
     '<label style="color:'+C.dim+'"><input type="checkbox" class="hideX" checked> hide cancelled <b class="nX"></b></label>'+
+    '<input class="find" placeholder="find part number" style="'+btn+
+      'width:150px;font-weight:400;cursor:text">'+
     '<label style="color:'+C.dim+'">WO <select class="wo" style="'+btn+'padding:4px 6px"></select></label>'+
     '<label style="color:'+C.dim+'"><input type="checkbox" class="lock" checked> lock layout</label>'+
     '<label style="color:'+C.dim+'">gap <input type="range" class="gap" min="4" max="90" value="22" style="vertical-align:middle;width:110px"></label>'+
@@ -118,7 +120,7 @@ const ISCOpenFlow = () => {
       '"/><rect x="9" y="8" width="21" height="6" rx="1.5" fill="'+C.Ready+'"/></svg>'+
     '<span style="color:'+C.dim+'">pale block = in a work order (number inside)</span>'+
     '<span style="flex:1"></span>'+
-    '<span style="color:'+C.dim+'">hover a part to trace it &middot; <b style="color:'+C.text+
+    '<span style="color:'+C.dim+'">type a part number to pin it &middot; hover a part to trace it &middot; <b style="color:'+C.text+
       '">click a part to pin that highlight</b> &middot; click an operation to open Job Tracking</span>';
   root.insertBefore(leg, body);
 
@@ -471,12 +473,35 @@ const ISCOpenFlow = () => {
           '{stroke:'+C.orange+';stroke-width:2;stroke-opacity:1}';
     }
 
-    function setFocus(g){
-      focus = (focus===g) ? null : g;
+    function setFocus(g){ pinTo((focus===g) ? null : g); }   // a click toggles
+
+    function pinTo(g){
+      focus = g;
       hover(null);
       const s=bar.querySelector('.focus');
       s.textContent = focus ? ('PINNED: '+focus.item+' - '+chain(focus).size+' parts in its chain') : '';
       draw();
+    }
+
+    /* Search pins exactly what a click pins - same code path, so the two can never drift.
+       Part numbers in this data carry leading spaces (" 1230-CH-001_FRWL03_R0" is real), so
+       match on a trimmed, upper-cased copy or those parts are unfindable.
+       No match does NOTHING: it must not clear a pin the user already has. */
+    function findPart(q){
+      const n=String(q||'').trim().toUpperCase();
+      if(!n) return null;
+      const key=g=>g.item.trim().toUpperCase();
+      const byLen=(a,b)=>key(a).length-key(b).length;
+      return groups.find(g=>key(g)===n)
+          || groups.filter(g=>key(g).startsWith(n)).sort(byLen)[0]
+          || groups.filter(g=>key(g).includes(n)).sort(byLen)[0]
+          || null;
+    }
+
+    function centerOn(g){
+      const r=body.getBoundingClientRect();
+      view.x = r.width/2  - g.x*view.k;
+      view.y = r.height/2 - g.y*view.k;
     }
 
     function wire(){
@@ -548,7 +573,20 @@ const ISCOpenFlow = () => {
     bar.querySelector('.nC').textContent='('+ops.filter(n=>n.status==='Complete').length+')';
     bar.querySelector('.nX').textContent='('+ops.filter(n=>n.status==='Cancelled').length+')';
     bar.querySelector('.gap').onchange=()=>{ wrap(); pack(); fit(); };
-    bar.querySelector('.all').onclick=()=>{ if(focus) setFocus(focus); };
+    bar.querySelector('.all').onclick=()=>{ pinTo(null); bar.querySelector('.find').value=''; };
+    (()=>{
+      const box=bar.querySelector('.find'); let t=null;
+      const run=()=>{ const g=findPart(box.value);
+        if(!g) return;                       // nothing found - leave the view exactly as it is
+        pinTo(g); centerOn(g); draw();
+        box.style.color=''; };
+      box.oninput=()=>{ clearTimeout(t); t=setTimeout(run,180); };   // debounce: draw() rebuilds the svg
+      box.onkeydown=ev=>{
+        if(ev.key==='Enter'){ clearTimeout(t); run(); }
+        if(ev.key==='Escape'){ box.value=''; pinTo(null); }
+        ev.stopPropagation();
+      };
+    })();
     bar.querySelector('.tidy').onclick=()=>{ tidy(); draw(); };
     bar.querySelector('.fit').onclick=fit;
 
