@@ -71,6 +71,18 @@
   const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   const f=v=>Math.round(v*10)/10;
 
+  /* Filled status cards need a text colour per fill. Picked by sRGB relative luminance rather
+     than by eye: Ready/Paused/Complete are light enough that dark ink reads better, Pending and
+     Cancelled are not. Hard-coding one text colour fails one end of the palette or the other. */
+  const INK={};
+  const ink=hex=>{
+    if(INK[hex]) return INK[hex];
+    const c=[1,3,5].map(i=>parseInt(hex.substr(i,2),16)/255)
+      .map(v=>v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4));
+    const L=0.2126*c[0]+0.7152*c[1]+0.0722*c[2];
+    return INK[hex]=(1.05/(L+0.05) > (L+0.05)/0.0545) ? '#ffffff' : '#10140f';
+  };
+
   (async () => {
     let j;
     try { j=await (await fetch('/api/Jobs/'+jobId,{credentials:'same-origin'})).json(); }
@@ -248,9 +260,8 @@
           const oy=y+HEAD+i*OPH, col=C[o.status]||C.Pending;
           b+='<g class="n" data-id="'+o.id+'">'+
             '<rect x="'+f(x+5)+'" y="'+f(oy+2)+'" width="'+(GW-10)+'" height="'+(OPH-4)+'" rx="4" fill="'+
-              C.card+'" stroke="'+col+'" stroke-width="1.3"/>'+
-            '<rect x="'+f(x+5)+'" y="'+f(oy+2)+'" width="3.5" height="'+(OPH-4)+'" rx="1.8" fill="'+col+'"/>'+
-            '<text x="'+f(x+14)+'" y="'+f(oy+15)+'" fill="'+C.text+'" font-size="10">'+
+              col+'" stroke="'+col+'" stroke-width="1.3"/>'+
+            '<text x="'+f(x+10)+'" y="'+f(oy+15)+'" fill="'+ink(col)+'" font-size="10" font-weight="600">'+
               esc(o.op).slice(0,20)+(o.hrs?'  '+o.hrs+'h':'')+'</text>'+
             '<title>'+esc(o.item)+'\n'+esc(o.op)+'\n'+o.status+(o.eq?'\n'+esc(o.eq):'')+
               (o.hrs?'\n'+o.hrs+' h':'')+'\nclick to open in Job Tracking</title></g>';
