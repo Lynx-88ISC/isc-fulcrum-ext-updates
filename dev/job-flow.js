@@ -488,7 +488,7 @@ const ISCOpenFlow = () => {
         '<option value="none">not in a WO ('+ops.filter(o=>!o.wo).length+')</option>'+
         nums.map(w=>'<option value="'+w+'">'+w+' ('+n[w]+' ops)</option>').join('');
       sel.onchange=()=>woFilter(sel.value);
-      bar.querySelector('.woLegend').innerHTML = nums.map(w=>
+      root.querySelector('.woLegend').innerHTML = nums.map(w=>
         '<span style="background:'+woColor(+w)+';color:'+ink(woColor(+w))+';font-weight:700;'+
         'font-size:9px;padding:2px 6px;border-radius:3px;margin-left:4px">'+w+'</span>').join('')+
         '<span style="color:'+C.dim+';margin-left:8px">no chip = not in a work order</span>';
